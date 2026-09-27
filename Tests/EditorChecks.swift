@@ -29,6 +29,15 @@ import AppKit
             session.textView.layoutManager?.ensureLayout(for: session.textView.textContainer ?? NSTextContainer())
             pump()
             precondition(!document.hasUnsavedChanges, "Coloring must not dirty the document")
+            precondition(session.textView.undoManager?.canUndo != true, "Coloring (including bold) must not create undo actions")
+            if document.syntaxLanguage != .plain, let storage = session.textView.textStorage {
+                var boldFound = false
+                storage.enumerateAttribute(.font, in: NSRange(location: 0, length: storage.length)) { value, _, stop in
+                    if let font = value as? NSFont, font.fontDescriptor.symbolicTraits.contains(.bold) { boldFound = true; stop.pointee = true }
+                }
+                precondition(boldFound, "Keywords and operators use the real bold font: \(filename)")
+                precondition(session.baseFont.fontDescriptor.symbolicTraits.contains(.bold) == false, "The editor's base font stays regular")
+            }
             precondition(session.textView.font?.pointSize == 12)
             let length = (original as NSString).length
             let secondLine = (original as NSString).range(of: "\n").location + 1

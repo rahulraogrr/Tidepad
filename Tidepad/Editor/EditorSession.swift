@@ -9,6 +9,9 @@ import Combine
     private var highlighter: SyntaxHighlighter?
     private var language: SyntaxLanguage
     private(set) var index = LineIndex()
+    /// The regular editor font. Syntax bolding changes fonts in the text, so NSTextView.font may
+    /// report a bold keyword's font; the gutter, typing and highlighter use this instead.
+    private(set) var baseFont: NSFont
     private var appliedOptions: EditorDisplayOptions?
 
     init(document: EditorDocument, fontConfiguration: EditorFontConfiguration = .standard,
@@ -18,7 +21,7 @@ import Combine
         scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 500))
         // Explicit TextKit 1 stack supports the ruler's glyph layout queries.
         let storage = NSTextStorage()
-        let layout = CodeLayoutManager()
+        let layout = NSLayoutManager()
         layout.allowsNonContiguousLayout = true
         layout.backgroundLayoutEnabled = false
         let container = NSTextContainer(containerSize: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
@@ -29,10 +32,11 @@ import Combine
         container.heightTracksTextView = false
         textView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 800, height: 500), textContainer: container)
         ruler = LineNumberRulerView(textView: textView, scrollView: scrollView)
+        baseFont = EditorFontProvider.font(configuration: fontConfiguration)
         super.init()
-        let font = EditorFontProvider.font(configuration: fontConfiguration)
-        textView.font = font
-        textView.defaultParagraphStyle = EditorFontProvider.paragraphStyle(font: font, configuration: fontConfiguration)
+        textView.font = baseFont
+        ruler.textFont = baseFont
+        textView.defaultParagraphStyle = EditorFontProvider.paragraphStyle(font: baseFont, configuration: fontConfiguration)
         textView.isRichText = false
         textView.importsGraphics = false
         textView.allowsUndo = true
@@ -73,7 +77,7 @@ import Combine
         document.utf16Length = storage.length
         document.lineEnding = index.lineEnding
         updateCursor()
-        highlighter = SyntaxHighlighter(textView: textView, policy: syntaxPolicy)
+        highlighter = SyntaxHighlighter(textView: textView, baseFont: baseFont, policy: syntaxPolicy)
         highlighter?.update(language: language)
         storage.delegate = self
         document.saveBoundary = { [weak textView] in textView?.breakUndoCoalescing() }
@@ -153,6 +157,9 @@ import Combine
         if previous?.font != options.font {
             let font = EditorFontProvider.font(configuration: options.font)
             let paragraph = EditorFontProvider.paragraphStyle(font: font, configuration: options.font)
+            baseFont = font
+            ruler.textFont = font
+            highlighter?.baseFont = font
             textView.font = font
             textView.defaultParagraphStyle = paragraph
             textView.textStorage?.addAttribute(.paragraphStyle, value: paragraph,
@@ -206,7 +213,11 @@ import Combine
         EditorDiagnostics.measure("syntax invalidation") { highlighter?.update(language: language) }
     }
 
-    func textViewDidChangeSelection(_ notification: Notification) { updateCursor() }
+    func textViewDidChangeSelection(_ notification: Notification) {
+        // New typing uses the regular font, even right after a bold keyword.
+        if textView.typingAttributes[.font] as? NSFont != baseFont { textView.typingAttributes[.font] = baseFont }
+        updateCursor()
+    }
 
     private func updateCursor() {
         textView.updateCaretDecorations()

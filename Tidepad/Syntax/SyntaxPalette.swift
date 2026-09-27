@@ -1,7 +1,7 @@
 import AppKit
 
 /// Notepad++'s default ("classic") style in light mode, with brighter equivalents for dark mode.
-/// Keywords and operators are drawn bold (see CodeLayoutManager), as in Notepad++.
+/// Keywords and operators use the bold variant of the editor font, as in Notepad++.
 enum SyntaxPalette {
     static func color(for kind: SyntaxKind, language: SyntaxLanguage = .plain, dark: Bool) -> NSColor {
         switch kind {

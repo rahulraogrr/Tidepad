@@ -13,14 +13,25 @@ import AppKit
     private var ready = false
     private var rendering = false
     private var paintedRange = NSRange(location: 0, length: 0)
+    /// Whether the painted range currently contains bold fonts that clearPaint must reset.
+    private var boldApplied = false
+    /// The regular editor font; keywords use its bold variant from NSFontManager.
+    var baseFont: NSFont { didSet { boldFont = Self.bold(baseFont) } }
+    private var boldFont: NSFont
 
-    init(textView: NSTextView, policy: SyntaxPolicy = SyntaxPolicy()) {
+    init(textView: NSTextView, baseFont: NSFont, policy: SyntaxPolicy = SyntaxPolicy()) {
         self.textView = textView
+        self.baseFont = baseFont
+        self.boldFont = Self.bold(baseFont)
         self.policy = policy
         super.init()
     }
 
     deinit { pending?.cancel(); worker?.cancel() }
+
+    private static func bold(_ font: NSFont) -> NSFont {
+        NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+    }
 
     func update(language: SyntaxLanguage) {
         self.language = language
@@ -66,7 +77,6 @@ import AppKit
         guard editedMask.contains(.editedCharacters) else { return }
         // Temporary attributes shift with edits. Cover both the old and shifted painted span.
         ready = false
-        (textView?.layoutManager as? CodeLayoutManager)?.adjustBoldRanges(editedRange: editedRange, delta: delta)
         guard paintedRange.length > 0 else { return }
         let start = min(paintedRange.location, editedRange.location)
         let end = min(textStorage.length, NSMaxRange(paintedRange) + max(0, delta))
@@ -76,25 +86,41 @@ import AppKit
 
     func renderVisibleText() {
         guard ready, !rendering, let textView, let layout = textView.layoutManager,
-              let container = textView.textContainer else { return }
+              let container = textView.textContainer, let storage = textView.textStorage else { return }
         rendering = true
         defer { rendering = false }
-        clearPaint()
         let visible = textView.visibleRect.offsetBy(dx: -textView.textContainerOrigin.x, dy: -textView.textContainerOrigin.y)
         let glyphs = layout.glyphRange(forBoundingRect: visible.insetBy(dx: 0, dy: -100), in: container)
         var range = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
         range.length = min(range.length, policy.maximumPaintLength)
-        let dark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let tokens = engine.tokens(in: range)
+
+        // Bold is a real font attribute on the text, as in Notepad++: the bold face of the editor font
+        // from NSFontManager. Attribute-only storage changes don't register undo, dirty the document or
+        // change the saved text, and monospaced bold faces keep the same advances, so lines don't
+        // reflow. Resetting the previous bold runs and applying the new ones is one storage transaction.
         var bold: [NSRange] = []
-        for token in engine.tokens(in: range) {
-            layout.addTemporaryAttribute(.foregroundColor, value: SyntaxPalette.color(for: token.kind, language: language, dark: dark),
-                                         forCharacterRange: token.range)
-            guard SyntaxPalette.isBold(token.kind) else { continue }
+        for token in tokens where SyntaxPalette.isBold(token.kind) {
             if let last = bold.last, NSMaxRange(last) == token.range.location {
                 bold[bold.count - 1].length += token.range.length // Merge adjacent runs, e.g. ">=".
             } else { bold.append(token.range) }
         }
-        (layout as? CodeLayoutManager)?.boldRanges = bold
+        let applyBold = !bold.isEmpty && boldFont != baseFont
+        let previous = NSIntersectionRange(paintedRange, NSRange(location: 0, length: storage.length))
+        if (boldApplied && previous.length > 0) || applyBold {
+            storage.beginEditing()
+            if boldApplied && previous.length > 0 { storage.addAttribute(.font, value: baseFont, range: previous) }
+            if applyBold { for boldRange in bold { storage.addAttribute(.font, value: boldFont, range: boldRange) } }
+            storage.endEditing()
+        }
+        boldApplied = applyBold
+
+        if previous.length > 0 { layout.removeTemporaryAttribute(.foregroundColor, forCharacterRange: previous) }
+        let dark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        for token in tokens {
+            layout.addTemporaryAttribute(.foregroundColor, value: SyntaxPalette.color(for: token.kind, language: language, dark: dark),
+                                         forCharacterRange: token.range)
+        }
         paintedRange = range
     }
 
@@ -103,7 +129,12 @@ import AppKit
         let length = (textView.textStorage?.length ?? 0)
         let range = NSIntersectionRange(paintedRange, NSRange(location: 0, length: length))
         if range.length > 0 { textView.layoutManager?.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range) }
-        (textView.layoutManager as? CodeLayoutManager)?.boldRanges = []
+        if boldApplied, range.length > 0, let storage = textView.textStorage {
+            storage.beginEditing()
+            storage.addAttribute(.font, value: baseFont, range: range)
+            storage.endEditing()
+        }
+        boldApplied = false
         paintedRange = NSRange(location: 0, length: 0)
     }
 }

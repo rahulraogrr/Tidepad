@@ -2,9 +2,11 @@ import AppKit
 
 final class LineNumberRulerView: NSRulerView {
     override var isFlipped: Bool { true }
+    /// The regular editor font, set by EditorSession (NSTextView.font may be a bold keyword's font).
+    var textFont: NSFont?
     var lineIndex = LineIndex() {
         didSet {
-            let width = max(TidepadMetrics.gutterMinimumWidth, CGFloat(String(lineIndex.starts.count).count) * ("0" as NSString).size(withAttributes: [.font: (clientView as? NSTextView)?.font ?? EditorFontProvider.font()]).width + TidepadMetrics.gutterPadding + TidepadMetrics.gutterLeadingPadding)
+            let width = max(TidepadMetrics.gutterMinimumWidth, CGFloat(String(lineIndex.starts.count).count) * ("0" as NSString).size(withAttributes: [.font: textFont ?? EditorFontProvider.font()]).width + TidepadMetrics.gutterPadding + TidepadMetrics.gutterLeadingPadding)
             if ruleThickness != width { ruleThickness = width }
             needsDisplay = true
         }
@@ -32,7 +34,7 @@ final class LineNumberRulerView: NSRulerView {
         let firstLine = lineIndex.line(at: chars.location)
         let lastLine = lineIndex.line(at: NSMaxRange(chars))
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: textView.font ?? EditorFontProvider.font(), .foregroundColor: TidepadTheme.gutterText
+            .font: textFont ?? EditorFontProvider.font(), .foregroundColor: TidepadTheme.gutterText
         ]
         for line in firstLine...lastLine {
             let offset = lineIndex.starts[line]
