@@ -102,6 +102,37 @@ import FoundationXML
             fatalError("Malformed XML must throw")
         } catch is TextCommandFailure {}
 
-        print("Text command checks passed: duplicate/delete/move lines, case, sort, remove duplicates, format JSON/XML.")
+        // SQL, in the style of the "SQL Formatter" VS Code extension (sql-formatter-plus).
+        s = "select a, count(*) as n from users u left join orders o on o.user_id = u.id where u.active = 1 and u.role in ('admin', 'owner') group by a order by n desc limit 10, 20;\n"
+        let sqlExpected = """
+            select
+              a,
+              count(*) as n
+            from
+              users u
+              left join orders o on o.user_id = u.id
+            where
+              u.active = 1
+              and u.role in ('admin', 'owner')
+            group by
+              a
+            order by
+              n desc
+            limit
+              10, 20;
+
+            """
+        let sql = TextCommands.formatSQL(s as NSString, selection: caret(0), indent: "  ", lineEnding: "\n")
+        expect(run(s, sql), sqlExpected, caret(0), "Format SQL")
+        precondition(TextCommands.formatSQL(sqlExpected as NSString, selection: caret(0), indent: "  ", lineEnding: "\n") == nil, "SQL formatting is idempotent")
+        s = "SELECT CASE WHEN x > 0 THEN 'it''s' ELSE 'no' END AS s FROM t -- note\r\nWHERE t.select = :id"
+        let sqlCase = TextCommands.formatSQL(s as NSString, selection: caret(0), indent: "    ", lineEnding: "\r\n")
+        expect(run(s, sqlCase), "SELECT\r\n    CASE\r\n        WHEN x > 0 THEN 'it''s'\r\n        ELSE 'no'\r\n    END AS s\r\nFROM\r\n    t -- note\r\nWHERE\r\n    t.select = :id", nil, "SQL CASE blocks, comments, placeholders and CRLF")
+        let upper = SQLFormatter.format("select a from t where b is not null union all select 1", options: .init(uppercase: true))
+        precondition(upper == "SELECT\n  a\nFROM\n  t\nWHERE\n  b IS NOT NULL\nUNION ALL\nSELECT\n  1", "Uppercase keywords: \(upper)")
+        let queries = SQLFormatter.format("select 1; select 2;")
+        precondition(queries == "select\n  1;\n\nselect\n  2;", "Blank line between queries: \(queries.debugDescription)")
+
+        print("Text command checks passed: duplicate/delete/move lines, case, sort, remove duplicates, format JSON/XML/SQL.")
     }
 }

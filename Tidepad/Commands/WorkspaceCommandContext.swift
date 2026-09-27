@@ -45,7 +45,7 @@ import Observation
     enum TextCommand {
         case duplicateLines, deleteLines, moveLinesUp, moveLinesDown
         case convertCase(CaseConversion), sortLines(ascending: Bool), removeDuplicateLines
-        case formatJSON, formatXML
+        case formatJSON, formatXML, formatSQL
     }
 
     /// Runs an Edit/Tools command on the selected document as one undoable edit.
@@ -69,6 +69,7 @@ import Observation
             case .removeDuplicateLines: edit = TextCommands.removeDuplicateLines(text, selection: selection, lineEnding: lineEnding)
             case .formatJSON: edit = try TextCommands.formatJSON(text, selection: selection, indent: indent, lineEnding: lineEnding)
             case .formatXML: edit = try TextCommands.formatXML(text, selection: selection, lineEnding: lineEnding)
+            case .formatSQL: edit = TextCommands.formatSQL(text, selection: selection, indent: indent, lineEnding: lineEnding)
             }
             guard let edit, session.apply(edit) else { NSSound.beep(); return }
         } catch {

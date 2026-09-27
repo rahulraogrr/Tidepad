@@ -277,6 +277,19 @@ enum TextCommands {
         return formatted(scope, original: original, text: text, actionName: "Format XML")
     }
 
+    /// Formats SQL in the style of the "SQL Formatter" VS Code extension (sql-formatter-plus).
+    static func formatSQL(_ source: TextSource, selection: NSRange, indent: String, lineEnding: String,
+                          uppercase: Bool = false) -> TextEdit? {
+        let scope = selection.length > 0 ? selection : NSRange(location: 0, length: source.length)
+        let original = source.substring(with: scope)
+        guard !original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let normalized = original.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        var text = SQLFormatter.format(normalized, options: .init(indent: indent, uppercase: uppercase))
+        if lineEnding != "\n" { text = text.replacingOccurrences(of: "\n", with: lineEnding) }
+        if let last = original.last, terminators.contains(last) { text += lineEnding }
+        return formatted(scope, original: original, text: text, actionName: "Format SQL")
+    }
+
     private static func formatted(_ scope: NSRange, original: String, text: String, actionName: String) -> TextEdit? {
         guard text != original else { return nil }
         return TextEdit(range: scope, text: text, selection: NSRange(location: scope.location, length: 0), actionName: actionName)
