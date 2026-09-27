@@ -130,6 +130,10 @@ import FoundationXML
         expect(run(s, sqlCase), "SELECT\r\n    CASE\r\n        WHEN x > 0 THEN 'it''s'\r\n        ELSE 'no'\r\n    END AS s\r\nFROM\r\n    t -- note\r\nWHERE\r\n    t.select = :id", nil, "SQL CASE blocks, comments, placeholders and CRLF")
         let upper = SQLFormatter.format("select a from t where b is not null union all select 1", options: .init(uppercase: true))
         precondition(upper == "SELECT\n  a\nFROM\n  t\nWHERE\n  b IS NOT NULL\nUNION ALL\nSELECT\n  1", "Uppercase keywords: \(upper)")
+        let rare = SQLFormatter.format("select a from t where b is not null lock in share mode", options: .init(uppercase: true))
+        precondition(rare.hasSuffix("b IS NOT NULL LOCK IN SHARE MODE"), "Full keyword list is upper-cased: \(rare)")
+        let cascade = SQLFormatter.format("x int references p (id) on update cascade")
+        precondition(cascade == "x int references p (id) on update cascade", "ON UPDATE is a keyword, not an UPDATE clause: \(cascade)")
         let queries = SQLFormatter.format("select 1; select 2;")
         precondition(queries == "select\n  1;\n\nselect\n  2;", "Blank line between queries: \(queries.debugDescription)")
 
