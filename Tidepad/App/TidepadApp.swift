@@ -25,10 +25,20 @@ import AppKit
     func windowDidBecomeKey(_ notification: Notification) {
         DispatchQueue.main.async { NativeMenuCoordinator.arrange() }
     }
+    /// Tidepad is a single-window app, like Notepad++: closing the workspace window quits.
+    /// Set once the close prompts have been answered, so quitting doesn't ask a second time.
+    private var closeConfirmed = false
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        manager.confirmCloseAll() ? .terminateNow : .terminateCancel
+        if closeConfirmed { return .terminateNow }
+        return manager.confirmCloseAll() ? .terminateNow : .terminateCancel
     }
-    func windowShouldClose(_ sender: NSWindow) -> Bool { manager.confirmCloseAll() }
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard manager.confirmCloseAll() else { return false }
+        closeConfirmed = true
+        DispatchQueue.main.async { NSApp.terminate(nil) }
+        return true
+    }
     func application(_ application: NSApplication, open urls: [URL]) { manager.openInBackground(urls) }
 }
 
