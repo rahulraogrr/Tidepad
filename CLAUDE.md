@@ -21,6 +21,15 @@ repository, whoever (or whatever) writes it.
 - Documents: Tidepad uses its own `DocumentManager` built on `NSFilePresenter` / `NSFileCoordinator`
   instead of `NSDocument`, because `NSDocument` reads, autosaves and versions whole files, which
   conflicts with editing 300–500 MB files. Revisit if the large-file engine makes that workable.
+- Editor engine (2026-09-27): one Core Text-based editor view for all files, on the piece-table storage
+  (`Tidepad/Storage`), replacing `NSTextView`. Measured on a 500 MB file (`Tests/run-large-file-prototype.sh`):
+  the storage opens in ~0.15 s and edits in microseconds, but TextKit 1 (`NSLayoutManager`) used 2.9 GB
+  and ~112 ms per keystroke, and TextKit 2 (`NSTextLayoutManager`, including
+  `relocateViewport(to:)`) took 48–58 s and 5–7 GB to jump or undo, because both lay out everything up
+  to a location. A hybrid (NSTextView for small files) was rejected to avoid two editor modes.
+  The view uses Apple APIs for everything it takes over: Core Text for layout and drawing,
+  `NSTextInputClient` for typing and input methods, `NSUndoManager`, `NSPasteboard`, and
+  `NSAccessibility`.
 
 ## Priorities
 
