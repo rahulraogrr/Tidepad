@@ -84,6 +84,7 @@ import AppKit
         precondition(limited.textView.layoutManager?.temporaryAttributes(atCharacterIndex: 0, effectiveRange: nil)[.foregroundColor] == nil)
         precondition(limited.document.text == "let value = 42")
         checkSearchEditing()
+        checkTextCommands()
         try checkDocumentGroups(output: output)
         try checkScrolling(output: output)
         print("All native AppKit editor checks passed.")
@@ -123,6 +124,31 @@ import AppKit
         precondition(document.hasUnsavedChanges, "Redo away from saved generation")
         window.contentView = nil
         print("PASS search replacement/undo/redo, Unicode selection, Go to Line bounds")
+    }
+
+    @MainActor static func checkTextCommands() {
+        let document = EditorDocument(text: "b\na\nb\n")
+        let session = EditorSession(document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = session.scrollView
+        window.makeFirstResponder(session.textView)
+        pump()
+        let text = session.textView.textStorage!.mutableString
+        guard let sort = TextCommands.sortLines(text, selection: NSRange(location: 0, length: 0), ascending: true, lineEnding: "\n") else { fatalError("Sort edit") }
+        precondition(session.apply(sort)); pump()
+        precondition(document.text == "a\nb\nb\n" && document.hasUnsavedChanges, "Sort applied")
+        precondition(session.textView.undoManager?.undoActionName == "Sort Lines Ascending", "Undo is named after the command")
+        guard let dedupe = TextCommands.removeDuplicateLines(text, selection: NSRange(location: 0, length: 0), lineEnding: "\n") else { fatalError("Dedupe edit") }
+        precondition(session.apply(dedupe)); pump()
+        precondition(document.text == "a\nb\n")
+        session.textView.setSelectedRange(NSRange(location: 2, length: 0))
+        guard let move = TextCommands.moveLines(text, selection: session.textView.selectedRange(), up: true) else { fatalError("Move edit") }
+        precondition(session.apply(move)); pump()
+        precondition(document.text == "b\na\n" && session.textView.selectedRange().location == 0 && document.cursorLine == 1, "Move keeps the caret on the moved line")
+        for _ in 0..<3 { session.textView.undoManager?.undo(); pump() }
+        precondition(document.text == "b\na\nb\n" && !document.hasUnsavedChanges, "Each command is one undo step")
+        window.contentView = nil
+        print("PASS text commands apply as single named undo steps")
     }
 
     @MainActor static func checkDocumentGroups(output: URL) throws {

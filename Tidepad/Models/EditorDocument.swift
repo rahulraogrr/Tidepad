@@ -12,6 +12,15 @@ enum LineEnding: String, CaseIterable {
         }
     }
 
+    /// The characters written for this line ending.
+    var text: String {
+        switch self {
+        case .lf: return "\n"
+        case .crlf: return "\r\n"
+        case .cr: return "\r"
+        }
+    }
+
     static func detect(in text: String) -> LineEnding {
         if text.contains("\r\n") { return .crlf }
         return text.contains("\r") ? .cr : .lf

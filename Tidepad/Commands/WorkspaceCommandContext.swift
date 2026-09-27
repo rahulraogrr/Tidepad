@@ -42,6 +42,46 @@ import Observation
         if let document { session?.setLanguage(document.syntaxLanguage) }
     }
 
+    enum TextCommand {
+        case duplicateLines, deleteLines, moveLinesUp, moveLinesDown
+        case convertCase(CaseConversion), sortLines(ascending: Bool), removeDuplicateLines
+        case formatJSON, formatXML
+    }
+
+    /// Runs an Edit/Tools command on the selected document as one undoable edit.
+    /// Beeps when there is nothing to do (e.g. moving the first line up).
+    func run(_ command: TextCommand) {
+        guard let session, let storage = session.textView.textStorage, session.textView.isEditable else { return }
+        let text: NSString = storage.mutableString
+        let selection = session.textView.selectedRange()
+        let lineEnding = session.document.lineEnding.text
+        let indent = String(repeating: " ", count: preferences.tabSize)
+        do {
+            let edit: TextEdit?
+            switch command {
+            case .duplicateLines: edit = TextCommands.duplicateLines(text, selection: selection, lineEnding: lineEnding)
+            case .deleteLines: edit = TextCommands.deleteLines(text, selection: selection)
+            case .moveLinesUp: edit = TextCommands.moveLines(text, selection: selection, up: true)
+            case .moveLinesDown: edit = TextCommands.moveLines(text, selection: selection, up: false)
+            case .convertCase(let conversion): edit = TextCommands.convertCase(text, selection: selection, to: conversion)
+            case .sortLines(let ascending):
+                edit = TextCommands.sortLines(text, selection: selection, ascending: ascending, lineEnding: lineEnding)
+            case .removeDuplicateLines: edit = TextCommands.removeDuplicateLines(text, selection: selection, lineEnding: lineEnding)
+            case .formatJSON: edit = try TextCommands.formatJSON(text, selection: selection, indent: indent, lineEnding: lineEnding)
+            case .formatXML: edit = try TextCommands.formatXML(text, selection: selection, lineEnding: lineEnding)
+            }
+            guard let edit, session.apply(edit) else { NSSound.beep(); return }
+        } catch {
+            let title: String
+            switch command {
+            case .formatJSON: title = "Can’t Format JSON"
+            case .formatXML: title = "Can’t Format XML"
+            default: title = "Command Failed"
+            }
+            placeholder(title, detail: error.localizedDescription)
+        }
+    }
+
     func applyDisplayOptions() { sessions.applyDisplayOptions(preferences.displayOptions) }
     func zoom(by amount: CGFloat) {
         preferences.fontSize = min(48, max(8, preferences.fontSize + amount))

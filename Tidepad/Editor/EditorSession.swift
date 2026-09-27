@@ -113,7 +113,8 @@ import Combine
         return true
     }
 
-    @discardableResult func applySearchReplacement(range: NSRange, text: String, selection: NSRange? = nil) -> Bool {
+    @discardableResult func applySearchReplacement(range: NSRange, text: String, selection: NSRange? = nil,
+                                                   actionName: String = "Replace") -> Bool {
         guard textView.isEditable, let storage = textView.textStorage,
               NSMaxRange(range) <= storage.length else { return false }
         textView.breakUndoCoalescing()
@@ -128,7 +129,15 @@ import Combine
         let caret = selection ?? NSRange(location: range.location + (text as NSString).length, length: 0)
         textView.setSelectedRange(NSRange(location: min(caret.location, storage.length), length: min(caret.length, max(0, storage.length - caret.location))))
         EditorDiagnostics.measure("bulk final refresh") { textView.didChangeText() }
-        textView.undoManager?.setActionName("Replace")
+        textView.undoManager?.setActionName(actionName)
+        return true
+    }
+
+    /// Applies a text command's edit as one undoable step and keeps the result in view.
+    @discardableResult func apply(_ edit: TextEdit) -> Bool {
+        guard applySearchReplacement(range: edit.range, text: edit.text, selection: edit.selection,
+                                     actionName: edit.actionName) else { return false }
+        textView.scrollRangeToVisible(textView.selectedRange())
         return true
     }
 
