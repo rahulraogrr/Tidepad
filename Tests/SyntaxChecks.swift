@@ -22,6 +22,22 @@ import Foundation
             for kind in expected { precondition(tokens.contains { $0.kind == kind }, "Missing \(kind) in \(language)") }
             precondition(tokens.allSatisfy { NSMaxRange($0.range) <= (text as NSString).length })
         }
+        // Prose apostrophes must not open strings that swallow the following lines.
+        let prose: [(SyntaxLanguage, String)] = [
+            (.yaml, "description: Don't use this\nnext: 42"),
+            (.html, "<p>It's here</p>\n<div class=\"x\">42</div>"),
+            (.xml, "<note>the author's file</note>\n<item id=\"1\"/>"),
+            (.markdown, "It's a \"quoted\" word\nNext line")
+        ]
+        for (language, text) in prose {
+            var engine = IncrementalSyntaxEngine()
+            engine.update(text: text, language: language)
+            precondition(!engine.lines[0].tokens.contains { $0.kind == .string && $0.range.length > 3 }, "Apostrophe opened a string in \(language)")
+            precondition(engine.lines[1].incoming.quote.isEmpty, "Quote state carried over in \(language)")
+        }
+        var yaml = IncrementalSyntaxEngine()
+        yaml.update(text: "a: 'quoted'\n- \"x\"\nc: [\"y\", 'z']", language: .yaml)
+        precondition(yaml.lines.allSatisfy { $0.tokens.contains { $0.kind == .string } }, "YAML quoted scalars remain strings")
         var engine = IncrementalSyntaxEngine()
         let source = "let emoji = \"😀\"\n/* start\ncontinued\n*/\nlet n = 42\n"
         engine.update(text: source, language: .swift)

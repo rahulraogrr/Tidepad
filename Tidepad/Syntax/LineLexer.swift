@@ -79,8 +79,7 @@ struct LineLexer: Sendable {
                         (language == .sql && matches("--", at: i)) ||
                         (language == .yaml && units[i] == 35 && (i == 0 || units[i - 1] == 32 || units[i - 1] == 9)) {
                 emit(i, units.count, .comment); i = units.count
-            } else if units[i] == 34 || (units[i] == 39 && language != .json) ||
-                        (units[i] == 96 && [.javascript, .typescript, .markdown].contains(language)) {
+            } else if opensString(units, at: i, state: state) {
                 if matches("\"\"\"", at: i) && [.swift, .java].contains(language) {
                     state.quote = [34, 34, 34]; i += 3
                 } else { state.quote = [units[i]]; i += 1 }
@@ -115,6 +114,25 @@ struct LineLexer: Sendable {
         // Normal single-line strings recover at EOL; multiline literals retain state.
         if state.quote.count == 1 && state.quote[0] != 96 && !language.isMarkup && language != .sql && language != .yaml { state.quote = [] }
         return tokens
+    }
+
+    /// Where a quote character starts a string. Prose apostrophes ("don't") must not open strings in
+    /// markup text, Markdown or unquoted YAML scalars, where the quote state can carry across lines.
+    private func opensString(_ units: [UInt16], at i: Int, state: LexerState) -> Bool {
+        let unit = units[i]
+        switch language {
+        case .json: return unit == 34
+        case .markdown: return unit == 96
+        case .xml, .html: return state.inTag && (unit == 34 || unit == 39)
+        case .yaml:
+            guard unit == 34 || unit == 39 else { return false }
+            // A quoted scalar begins a value: at line start or after `:`, `-`, `?`, `,`, `[` or `{`.
+            var j = i - 1
+            while j >= 0 && (units[j] == 32 || units[j] == 9) { j -= 1 }
+            return j < 0 || [58, 45, 63, 44, 91, 123].contains(units[j])
+        case .javascript, .typescript: return unit == 34 || unit == 39 || unit == 96
+        default: return unit == 34 || unit == 39
+        }
     }
 
     private static func isWord(_ unit: UInt16) -> Bool {
