@@ -1,0 +1,84 @@
+import Foundation
+
+@main struct CoreChecks {
+    static func main() throws {
+        let index = LineIndex()
+        index.rebuild("")
+        precondition(index.starts == [0] && index.line(at: 0) == 0)
+        index.rebuild("a\r\nb\rc\n😀\n")
+        precondition(index.starts == [0, 3, 5, 7, 10])
+        precondition(index.line(at: 2) == 0 && index.line(at: 3) == 1)
+        precondition(index.line(at: 9) == 3 && index.line(at: 10) == 4)
+        index.rebuild("single")
+        precondition(index.starts == [0])
+        let mutable = NSMutableString(string: "a\r\nb\rc\n😀\n")
+        index.rebuild(mutable as String)
+        var seed: UInt64 = 17
+        let insertions = ["", "a", "\r", "\n", "\r\n", "😀", "x\u{2028}y"]
+        for _ in 0..<2000 {
+            seed = seed &* 6364136223846793005 &+ 1
+            let location = Int(seed % UInt64(mutable.length + 1))
+            let count = min(Int((seed >> 8) % 4), mutable.length - location)
+            let replacement = insertions[Int((seed >> 16) % UInt64(insertions.count))]
+            // NSString permits arbitrary UTF-16 ranges; avoid splitting surrogate pairs in this fixture.
+            let range = mutable.rangeOfComposedCharacterSequences(for: NSRange(location: location, length: count))
+            mutable.replaceCharacters(in: range, with: replacement)
+            let added = (replacement as NSString).length
+            index.applyEdit(in: mutable, range: NSRange(location: range.location, length: added), delta: added - range.length)
+            let expected = LineIndex(); expected.rebuild(mutable as String)
+            precondition(index.starts == expected.starts && index.lineEnding == expected.lineEnding, "Incremental line boundaries")
+            precondition(index.characters(in: NSRange(location: 0, length: mutable.length), text: mutable) == (mutable as String).count, "Indexed Unicode selection length")
+        }
+        let service = TextFileService()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for encoding in [String.Encoding.utf8, .utf16] {
+            let url = directory.appendingPathComponent("sample.txt")
+            let content = "Hello 😀\r\nSecond line\r\n"
+            let document = EditorDocument(text: content, encoding: encoding)
+            precondition(!document.hasUnsavedChanges && document.lineEnding == .crlf)
+            document.text += "changed"
+            precondition(document.hasUnsavedChanges)
+            document.text = content
+            precondition(!document.hasUnsavedChanges)
+            try service.write(document, to: url)
+            let loaded = try service.read(url)
+            precondition(loaded.text == content && loaded.lineEnding == .crlf)
+            loaded.text = "replacement\n"
+            precondition(loaded.preparedLines == nil, "Explicit replacement invalidates the prepared loading index")
+            document.markSaved(at: url)
+            precondition(document.displayName == "sample.txt" && !document.hasUnsavedChanges)
+        }
+        for (encoding, prefix) in [(String.Encoding.utf8, [UInt8(0xEF), 0xBB, 0xBF]), (.utf16LittleEndian, [0xFF, 0xFE]), (.utf16BigEndian, [0xFE, 0xFF]), (.utf32LittleEndian, [0xFF, 0xFE, 0x00, 0x00]), (.utf32BigEndian, [0x00, 0x00, 0xFE, 0xFF])] {
+            let url = directory.appendingPathComponent("bom.txt")
+            let document = EditorDocument(text: "BOM test 😀", encoding: encoding)
+            document.hasByteOrderMark = true
+            try service.write(document, to: url)
+            let bytes = try Data(contentsOf: url)
+            precondition(bytes.starts(with: prefix))
+            let loaded = try service.read(url)
+            precondition(loaded.hasByteOrderMark && loaded.encoding == encoding && loaded.text == document.text)
+            try service.write(loaded, to: url)
+            let roundTrip = try Data(contentsOf: url)
+            precondition(roundTrip == bytes, "Save must preserve BOM without duplicating it")
+        }
+        for encoding in [String.Encoding.utf16LittleEndian, .utf16BigEndian, .utf32LittleEndian, .utf32BigEndian] {
+            let url = directory.appendingPathComponent("no-bom.txt")
+            try "Plain text without BOM\n".data(using: encoding)?.write(to: url)
+            var expectedEncoding = String.Encoding.utf8
+            if let expected = try? String(contentsOf: url, usedEncoding: &expectedEncoding) {
+                let loaded = try service.read(url)
+                precondition(loaded.text == expected && loaded.encoding == expectedEncoding, "Preserve native BOM-less encoding detection")
+            }
+        }
+        let overridden = EditorDocument(fileURL: URL(fileURLWithPath: "/sample.swift"))
+        precondition(overridden.syntaxLanguage == .swift)
+        overridden.languageOverride = .json
+        overridden.markSaved(at: URL(fileURLWithPath: "/sample.java"))
+        precondition(overridden.syntaxLanguage == .json && !overridden.hasUnsavedChanges)
+        overridden.languageOverride = nil
+        precondition(overridden.syntaxLanguage == .java)
+        print("Core checks passed: line offsets, Unicode, CRLF/CR/LF, dirty state, UTF-8/UTF-16 file round trips.")
+    }
+}

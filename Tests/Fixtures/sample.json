@@ -1,0 +1,7 @@
+{
+    "name": "Tidepad",
+    "version": 0.2,
+    "enabled": true,
+    "optional": null,
+    "items": [1, 2, 3]
+}
