@@ -176,7 +176,8 @@ actor CompiledSearchCache {
                 self.busy = false
                 guard !Task.isCancelled, document.revision == snapshot.revision, context.document?.id == document.id,
                       session.textView.selectedRange() == selection else { self.message = "Replace cancelled: document or selection changed."; return }
-                guard let plan else { self.message = "No matching text selected."; if findNext { self.navigate() }; return }
+                // Like Notepad++, Replace with no matching selection moves to the next match instead.
+                guard let plan else { self.message = "No matching text selected."; if !all { self.navigate() }; return }
                 let timer = SearchTiming("Replace commit")
                 guard session.applySearchReplacement(range: plan.range, text: plan.text, selection: all ? NSRange(location: selection.location, length: 0) : nil) else { self.message = "Editor rejected replacement."; return }
                 if inSelection {
