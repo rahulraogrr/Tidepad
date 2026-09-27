@@ -11,7 +11,16 @@ repository, whoever (or whatever) writes it.
 - No faked behaviour: no drawing tricks that imitate a feature (e.g. double-drawing glyphs to fake bold),
   no private APIs, no emulation of something the framework already provides. Use the framework's own
   mechanism (e.g. the real bold face from `NSFontManager`).
+- Prefer Apple's highest-level ready-made class for a job (e.g. `NSDocument`, `NSTextView`). Drop to
+  Apple's lower-level APIs only when the high-level one can't meet a stated requirement (such as editing
+  300–500 MB files), and record why under "Decisions" below.
 - If something can't be done natively, stop and raise it. Don't work around it.
+
+## Decisions
+
+- Documents: Tidepad uses its own `DocumentManager` built on `NSFilePresenter` / `NSFileCoordinator`
+  instead of `NSDocument`, because `NSDocument` reads, autosaves and versions whole files, which
+  conflicts with editing 300–500 MB files. Revisit if the large-file engine makes that workable.
 
 ## Priorities
 
