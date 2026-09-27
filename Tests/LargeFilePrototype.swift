@@ -4,7 +4,7 @@ import Darwin
 /// Large-file prototype: opens a big UTF-8 file in a plain NSTextView backed by
 /// PieceTableTextStorage and measures what matters for editing 300–500 MB files.
 ///
-///   Tests/run-large-file-prototype.sh [--mb 500] [--file path] [--textkit2] [--standard] [--stay]
+///   Tests/run-large-file-prototype.sh [--mb 500] [--file path] [--textkit2] [--standard] [--skip-end] [--stay]
 ///
 /// --standard uses Apple's default NSTextStorage with the whole file as one string (today's
 /// approach) for comparison. --stay keeps the window open afterwards to scroll and type by hand.
@@ -124,7 +124,11 @@ import Darwin
         let length = storage.length
         print("UTF-16 length: \(length)")
         measure("scroll to middle", window) { textView.scrollRangeToVisible(NSRange(location: length / 2, length: 0)) }
-        measure("scroll to end", window) { textView.scrollRangeToVisible(NSRange(location: length, length: 0)) }
+        if arguments.contains("--skip-end") {
+            print("(skipping scroll to end)")
+        } else {
+            measure("scroll to end", window) { textView.scrollRangeToVisible(NSRange(location: length, length: 0)) }
+        }
         measure("scroll back to top", window) { textView.scrollRangeToVisible(NSRange(location: 0, length: 0)) }
 
         let middle = (storage.string as NSString).lineRange(for: NSRange(location: length / 2, length: 0)).location
