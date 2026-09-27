@@ -242,7 +242,12 @@ import AppKit
         precondition(document.cursorLine == 200 && document.lineCount == 250)
         precondition(session.scrollView.contentView.bounds.minY > 0)
         let point = session.ruler.convert(NSPoint(x: 0, y: lineRect.minY + session.textView.textContainerOrigin.y), from: session.textView)
-        precondition(point.y > 0 && point.y < 150, "Gutter coordinates must track vertical scroll")
+        let lineRectNow = layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: offset), effectiveRange: nil)
+        precondition(point.y > 0 && point.y < 150, """
+            Gutter coordinates must track vertical scroll: point.y \(point.y), line 200 minY before \(lineRect.minY) / \
+            now \(lineRectNow.minY), scrolled to \(lineRect.minY - 50), clip minY now \(session.scrollView.contentView.bounds.minY), \
+            text view height \(session.textView.frame.height)
+            """)
         let attributes = layout.temporaryAttributes(atCharacterIndex: offset, effectiveRange: nil)
         precondition(attributes[.foregroundColor] != nil, "Scrolling must color newly visible text")
         if let bitmap = session.scrollView.bitmapImageRepForCachingDisplay(in: session.scrollView.bounds) {
