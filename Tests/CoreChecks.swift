@@ -63,6 +63,21 @@ import Foundation
             let roundTrip = try Data(contentsOf: url)
             precondition(roundTrip == bytes, "Save must preserve BOM without duplicating it")
         }
+        // Saving keeps the file's permissions and writes through symlinks instead of replacing them.
+        let script = directory.appendingPathComponent("tool.sh")
+        try "echo one\n".write(to: script, atomically: false, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let link = directory.appendingPathComponent("tool-link.sh")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: script)
+        let linked = try service.read(link)
+        linked.text = "echo two\n"
+        try service.write(linked, to: link)
+        let linkDestination = try FileManager.default.destinationOfSymbolicLink(atPath: link.path)
+        precondition(linkDestination == script.path, "Save must not replace a symlink with a regular file")
+        let scriptText = try String(contentsOf: script, encoding: .utf8)
+        precondition(scriptText == "echo two\n", "Save must write through the symlink")
+        let mode = (try FileManager.default.attributesOfItem(atPath: script.path)[.posixPermissions] as? NSNumber)?.intValue
+        precondition(mode == 0o755, "Save must keep the file's permissions")
         for encoding in [String.Encoding.utf16LittleEndian, .utf16BigEndian, .utf32LittleEndian, .utf32BigEndian] {
             let url = directory.appendingPathComponent("no-bom.txt")
             try "Plain text without BOM\n".data(using: encoding)?.write(to: url)

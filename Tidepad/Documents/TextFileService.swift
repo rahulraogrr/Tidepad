@@ -61,6 +61,19 @@ struct TextFileService {
             }
             data.insert(contentsOf: prefix, at: 0)
         }
-        try data.write(to: url, options: .atomic)
+        // Write through symlinks to the real file. Replacing via a temporary file on the same volume
+        // keeps the save atomic while preserving the original's permissions (e.g. +x), ACLs and xattrs.
+        let target = url.resolvingSymlinksInPath()
+        let files = FileManager.default
+        guard files.fileExists(atPath: target.path) else {
+            try data.write(to: target, options: .atomic)
+            return
+        }
+        let staging = try files.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                    appropriateFor: target, create: true)
+        defer { try? files.removeItem(at: staging) }
+        let temporary = staging.appendingPathComponent(target.lastPathComponent)
+        try data.write(to: temporary)
+        _ = try files.replaceItemAt(target, withItemAt: temporary)
     }
 }
