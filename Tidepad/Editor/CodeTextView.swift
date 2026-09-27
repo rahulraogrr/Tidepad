@@ -5,6 +5,33 @@ final class CodeTextView: NSTextView {
     var appearanceChanged: (() -> Void)?
     /// Opens files dropped on the editor, as Notepad++ does, instead of inserting their paths.
     var openFiles: (([URL]) -> Void)?
+    /// The link shown at a character index, if any. ⌘-click opens it with its default app.
+    var linkAt: ((Int) -> URL?)?
+
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command), let url = link(under: event) {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        // Show that ⌘-click will follow the link under the pointer.
+        if event.modifierFlags.contains(.command), link(under: event) != nil { NSCursor.pointingHand.set() }
+    }
+
+    /// The link under the mouse: only when the pointer is on the link's glyphs, not past the line's end.
+    private func link(under event: NSEvent) -> URL? {
+        guard let linkAt, let layout = layoutManager, let container = textContainer else { return nil }
+        let point = convert(event.locationInWindow, from: nil)
+        let location = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let glyph = layout.glyphIndex(for: location, in: container)
+        guard glyph < layout.numberOfGlyphs,
+              layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).contains(location) else { return nil }
+        return linkAt(layout.characterIndexForGlyph(at: glyph))
+    }
 
     private func droppedFiles(_ info: NSDraggingInfo) -> [URL] {
         guard openFiles != nil else { return [] }

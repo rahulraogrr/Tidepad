@@ -6,6 +6,49 @@ import AppKit
         while Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
     }
 
+    /// JSON keys and values, links (URLs and email addresses) and colouring past the old 1 MB limit.
+    @MainActor static func checkLinksAndLargeFiles() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 920, height: 450),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .aqua)
+        let text = "{\n  \"site\": \"https://example.com/docs\",\n  \"mail\": \"team@example.com\"\n}\n"
+        let session = EditorSession(document: EditorDocument(fileURL: URL(fileURLWithPath: "/links.json"), text: text))
+        window.contentView = session.scrollView
+        window.contentView?.layoutSubtreeIfNeeded()
+        pump()
+        guard let layout = session.textView.layoutManager, let linkAt = session.textView.linkAt else { fatalError("Missing layout or links") }
+        let source = text as NSString
+        let url = source.range(of: "https://example.com/docs"), mail = source.range(of: "team@example.com")
+        let key = source.range(of: "site")
+        precondition(linkAt(url.location + 3) == URL(string: "https://example.com/docs"), "URLs are links")
+        precondition(linkAt(mail.location)?.scheme == "mailto", "Email addresses are links")
+        precondition(linkAt(key.location) == nil, "Other text isn't a link")
+        precondition(layout.temporaryAttributes(atCharacterIndex: url.location, effectiveRange: nil)[.underlineStyle] != nil, "Links are underlined")
+        let keyColor = layout.temporaryAttributes(atCharacterIndex: key.location, effectiveRange: nil)[.foregroundColor] as? NSColor
+        let valueColor = layout.temporaryAttributes(atCharacterIndex: url.location, effectiveRange: nil)[.foregroundColor] as? NSColor
+        precondition(keyColor != nil && valueColor != nil && keyColor != valueColor, "JSON keys and values have different colours")
+        session.textView.insertText("\n", replacementRange: NSRange(location: 0, length: 0))
+        pump()
+        precondition(linkAt(url.location + 4) == URL(string: "https://example.com/docs"), "Links follow edits")
+
+        // A 3 MB file is coloured at the top and at the end.
+        let record = "{\"key\": \"value\", \"n\": 42},\n"
+        let large = EditorSession(document: EditorDocument(fileURL: URL(fileURLWithPath: "/large.json"),
+                                                           text: String(repeating: record, count: 110_000)))
+        window.contentView = large.scrollView
+        window.contentView?.layoutSubtreeIfNeeded()
+        pump()
+        guard let largeLayout = large.textView.layoutManager else { fatalError("Missing layout") }
+        precondition(largeLayout.temporaryAttributes(atCharacterIndex: 1, effectiveRange: nil)[.foregroundColor] != nil, "Large files are coloured")
+        precondition(large.goToLine("110000"))
+        pump()
+        let lastLine = large.index.starts[109_999]
+        precondition(largeLayout.temporaryAttributes(atCharacterIndex: lastLine + 1, effectiveRange: nil)[.foregroundColor] != nil,
+                     "The end of a large file is coloured")
+        window.contentView = nil
+        print("PASS JSON key/value colours, links (URL, email, underline, after edits), colouring a 3 MB file")
+    }
+
     @MainActor static func main() throws {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
@@ -92,6 +135,7 @@ import AppKit
         pump()
         precondition(limited.textView.layoutManager?.temporaryAttributes(atCharacterIndex: 0, effectiveRange: nil)[.foregroundColor] == nil)
         precondition(limited.document.text == "let value = 42")
+        checkLinksAndLargeFiles()
         checkSearchEditing()
         checkTextCommands()
         try checkExternalChanges(output: output)

@@ -7,9 +7,12 @@ enum SyntaxPalette {
         switch kind {
         case .keyword, .literal: return dark ? hex(0x6CA8FF) : hex(0x0000FF) // instruction words: blue
         case .string:
-            // Markup strings are attribute values (purple); other strings are grey.
+            // Markup strings are attribute values (purple), JSON string values are dark red (Notepad++'s
+            // JSON style) and other strings are grey.
             if language.isMarkup { return dark ? hex(0xC792FF) : hex(0x8000FF) }
+            if language == .json { return dark ? hex(0xE07070) : hex(0x800000) }
             return dark ? hex(0xB4B4B4) : hex(0x808080)
+        case .property: return dark ? hex(0xC792FF) : hex(0x8000FF)         // JSON property names: purple
         case .number: return dark ? hex(0xFFA040) : hex(0xFF8000)            // orange
         case .comment: return dark ? hex(0x5FB85F) : hex(0x008000)           // green
         case .punctuation: return dark ? hex(0xA8B8FF) : hex(0x000080)       // operators: navy

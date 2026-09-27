@@ -13,45 +13,76 @@ struct LexerState: Equatable, Sendable {
 struct LineLexer: Sendable {
     let language: SyntaxLanguage
     private let keywords: Set<String>
+    // Language traits, worked out once: they're consulted for nearly every character.
+    private let isMarkup, hasSlashComments, hasBlockComments, nestsBlockComments: Bool
+    private let isSQL, isYAML, isJSON, hasTripleQuotes, namesKeysAsKeywords: Bool
+
     init(language: SyntaxLanguage) {
         self.language = language
         keywords = language.keywords
+        isMarkup = language.isMarkup
+        hasSlashComments = language.hasSlashComments
+        hasBlockComments = language.hasBlockComments
+        nestsBlockComments = language == .swift
+        isSQL = language == .sql
+        isYAML = language == .yaml
+        isJSON = language == .json
+        hasTripleQuotes = language == .swift || language == .java
+        namesKeysAsKeywords = language == .yaml || language == .css
     }
 
+    private static let markupCommentOpen = Array("<!--".utf16), markupCommentClose = Array("-->".utf16)
+    private static let blockOpen = Array("/*".utf16), blockClose = Array("*/".utf16)
+    private static let lineComment = Array("//".utf16), sqlComment = Array("--".utf16)
+    private static let tripleQuote = Array("\"\"\"".utf16), fence = Array("```".utf16)
+    private static let punctuation: [Bool] = {
+        var table = [Bool](repeating: false, count: 128)
+        for unit in "{}[]():;,=.+-*/<>!&|?@#$%_~".utf16 { table[Int(unit)] = true }
+        return table
+    }()
+    private static let literals: Set<String> = ["true", "false", "null", "nil", "undefined", "yes", "no"]
+
     func scan(_ line: String, state: inout LexerState) -> [SyntaxToken] {
+        scan(Array(line.utf16), state: &state)
+    }
+
+    /// Scans one line (with its terminator, if any). Token ranges are offsets into `units`. With
+    /// `collect` false only the state is advanced, which is all that's needed to reach a later line.
+    func scan(_ units: [UInt16], state: inout LexerState, collect: Bool = true) -> [SyntaxToken] {
         guard language != .plain else { return [] }
-        let units = Array(line.utf16)
         var tokens: [SyntaxToken] = []
         var i = 0
-        func matches(_ text: String, at offset: Int) -> Bool {
-            let pattern = Array(text.utf16)
-            return offset + pattern.count <= units.count && Array(units[offset..<(offset + pattern.count)]) == pattern
+        func matches(_ pattern: [UInt16], at offset: Int) -> Bool {
+            guard offset + pattern.count <= units.count else { return false }
+            for k in 0..<pattern.count where units[offset + k] != pattern[k] { return false }
+            return true
         }
         func emit(_ start: Int, _ end: Int, _ kind: SyntaxKind) {
-            if end > start { tokens.append(SyntaxToken(range: NSRange(location: start, length: end - start), kind: kind)) }
+            if collect && end > start { tokens.append(SyntaxToken(range: NSRange(location: start, length: end - start), kind: kind)) }
         }
         if language == .markdown {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.hasPrefix("```") {
+            var first = 0
+            while first < units.count && (units[first] == 32 || units[first] == 9) { first += 1 }
+            if matches(Self.fence, at: first) {
                 state.fencedCode.toggle()
                 emit(0, units.count, .punctuation)
                 return tokens
             }
             if state.fencedCode { emit(0, units.count, .string); return tokens }
-            if trimmed.hasPrefix("#") { emit(0, units.count, .heading); return tokens }
+            if first < units.count && units[first] == 35 { emit(0, units.count, .heading); return tokens }
         }
         while i < units.count {
             let start = i
             if state.markupComment {
-                while i < units.count && !matches("-->", at: i) { i += 1 }
+                while i < units.count && !matches(Self.markupCommentClose, at: i) { i += 1 }
                 if i < units.count { i += 3; state.markupComment = false }
                 emit(start, i, .comment)
             } else if state.blockDepth > 0 {
                 while i < units.count {
-                    if matches("*/", at: i) {
+                    if matches(Self.blockClose, at: i) {
                         state.blockDepth -= 1; i += 2
                         if state.blockDepth == 0 { break }
-                    } else if language == .swift && matches("/*", at: i) {
+                    } else if nestsBlockComments && matches(Self.blockOpen, at: i) {
                         state.blockDepth += 1; i += 2
                     } else { i += 1 }
                 }
@@ -59,65 +90,82 @@ struct LineLexer: Sendable {
             } else if !state.quote.isEmpty {
                 let delimiter = state.quote
                 while i < units.count {
-                    if i + delimiter.count <= units.count && Array(units[i..<(i + delimiter.count)]) == delimiter {
+                    if matches(delimiter, at: i) {
                         i += delimiter.count
                         // SQL doubles quote characters to escape them.
-                        if language == .sql && i < units.count && units[i] == delimiter[0] { i += 1; continue }
+                        if isSQL && i < units.count && units[i] == delimiter[0] { i += 1; continue }
                         state.quote = []
                         break
                     }
-                    if units[i] == 92 && !language.isMarkup { i = min(units.count, i + 2) }
+                    if units[i] == 92 && !isMarkup { i = min(units.count, i + 2) }
                     else { i += 1 }
                 }
                 emit(start, i, .string)
-            } else if language.isMarkup && matches("<!--", at: i) {
+            } else if units[i] == 32 || units[i] == 9 {
+                i += 1 // Spaces and tabs between tokens.
+            } else if isMarkup && matches(Self.markupCommentOpen, at: i) {
                 state.markupComment = true
                 i += 4
                 emit(start, i, .comment)
-            } else if language.hasBlockComments && matches("/*", at: i) {
+            } else if hasBlockComments && matches(Self.blockOpen, at: i) {
                 state.blockDepth = 1; i += 2; emit(start, i, .comment)
-            } else if (language.hasSlashComments && matches("//", at: i)) ||
-                        (language == .sql && matches("--", at: i)) ||
-                        (language == .yaml && units[i] == 35 && (i == 0 || units[i - 1] == 32 || units[i - 1] == 9)) {
+            } else if (hasSlashComments && matches(Self.lineComment, at: i)) ||
+                        (isSQL && matches(Self.sqlComment, at: i)) ||
+                        (isYAML && units[i] == 35 && (i == 0 || units[i - 1] == 32 || units[i - 1] == 9)) {
                 emit(i, units.count, .comment); i = units.count
+            } else if isJSON && units[i] == 34 {
+                // A JSON string followed by a colon is a property name; Notepad++ colours those differently.
+                i += 1
+                var closed = false
+                while i < units.count {
+                    if units[i] == 92 { i = min(units.count, i + 2); continue }
+                    if units[i] == 34 { i += 1; closed = true; break }
+                    if units[i] == 10 || units[i] == 13 { break }
+                    i += 1
+                }
+                var next = i
+                while next < units.count && (units[next] == 32 || units[next] == 9) { next += 1 }
+                emit(start, i, closed && next < units.count && units[next] == 58 ? .property : .string)
             } else if opensString(units, at: i, state: state) {
-                if matches("\"\"\"", at: i) && [.swift, .java].contains(language) {
-                    state.quote = [34, 34, 34]; i += 3
+                if hasTripleQuotes && matches(Self.tripleQuote, at: i) {
+                    state.quote = Self.tripleQuote; i += 3
                 } else { state.quote = [units[i]]; i += 1 }
                 emit(start, i, .string)
-            } else if language.isMarkup && units[i] == 60 {
+            } else if isMarkup && units[i] == 60 {
                 state.inTag = true; state.tagNameSeen = false; i += 1; emit(start, i, .punctuation)
-            } else if language.isMarkup && units[i] == 62 {
+            } else if isMarkup && units[i] == 62 {
                 state.inTag = false; i += 1; emit(start, i, .punctuation)
             } else if units[i] >= 48 && units[i] <= 57 {
                 i += 1
-                while i < units.count && ((units[i] >= 48 && units[i] <= 57) || [46, 95].contains(units[i])) { i += 1 }
+                while i < units.count && ((units[i] >= 48 && units[i] <= 57) || units[i] == 46 || units[i] == 95) { i += 1 }
                 emit(start, i, .number)
             } else if Self.isWord(units[i]) {
                 i += 1
                 while i < units.count && (Self.isWord(units[i]) || (units[i] >= 48 && units[i] <= 57)) { i += 1 }
+                // Only words that could be a literal or keyword become Strings.
+                guard !keywords.isEmpty || isMarkup || namesKeysAsKeywords || (2...9).contains(i - start) else { continue }
                 let word = String(decoding: units[start..<i], as: UTF16.self)
-                let normalized = language == .sql ? word.lowercased() : word
-                if ["true", "false", "null", "nil", "undefined", "yes", "no"].contains(normalized) {
+                let normalized = isSQL ? word.lowercased() : word
+                if Self.literals.contains(normalized) {
                     emit(start, i, .literal)
                 } else if keywords.contains(normalized) { emit(start, i, .keyword) }
-                else if language.isMarkup && state.inTag {
+                else if isMarkup && state.inTag {
                     // Notepad++ colours the tag name and its attribute names differently.
                     emit(start, i, state.tagNameSeen ? .attribute : .tag)
                     state.tagNameSeen = true
                 }
-                else if language == .yaml || language == .css {
+                else if namesKeysAsKeywords {
                     var next = i
                     while next < units.count && units[next] == 32 { next += 1 }
                     if next < units.count && units[next] == 58 { emit(start, i, .keyword) }
                 }
             } else {
-                if "{}[]():;,=.+-*/<>!&|?@#$%_~".utf16.contains(units[i]) { emit(i, i + 1, .punctuation) }
+                if units[i] < 128 && Self.punctuation[Int(units[i])] { emit(i, i + 1, .punctuation) }
                 i += 1
             }
         }
         // Normal single-line strings recover at EOL; multiline literals retain state.
-        if state.quote.count == 1 && state.quote[0] != 96 && !language.isMarkup && language != .sql && language != .yaml { state.quote = [] }
+        if state.quote.count == 1 && state.quote[0] != 96 && !isMarkup && !isSQL && !isYAML { state.quote = [] }
         return tokens
     }
 

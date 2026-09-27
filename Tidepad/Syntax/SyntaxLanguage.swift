@@ -33,6 +33,9 @@ enum SyntaxLanguage: String, Sendable, CaseIterable {
     var isMarkup: Bool { self == .xml || self == .html }
     var hasSlashComments: Bool { [.swift, .java, .javascript, .typescript].contains(self) }
     var hasBlockComments: Bool { hasSlashComments || self == .sql || self == .css }
+    /// Whether a line's colouring can depend on earlier lines (block comments, multi-line strings,
+    /// open tags). JSON strings and tokens always end on their own line.
+    var carriesStateAcrossLines: Bool { self != .plain && self != .json }
     var keywords: Set<String> {
         let words: String
         switch self {
@@ -52,7 +55,11 @@ enum SyntaxLanguage: String, Sendable, CaseIterable {
     }
 }
 
-enum SyntaxKind: Sendable { case keyword, string, number, comment, literal, punctuation, tag, attribute, heading }
+enum SyntaxKind: Sendable {
+    case keyword, string, number, comment, literal, punctuation, tag, attribute, heading
+    /// A JSON property name (a string followed by a colon).
+    case property
+}
 struct SyntaxToken: Sendable, Equatable {
     var range: NSRange
     let kind: SyntaxKind
@@ -60,16 +67,9 @@ struct SyntaxToken: Sendable, Equatable {
 
 struct SyntaxPolicy: Sendable {
     var isEnabled = true
-    var maximumUTF16Length = 1_000_000
-    var debounceNanoseconds: UInt64 = 90_000_000
+    /// Colouring is lazy (only up to the visible text), so it isn't limited to small files. This bound
+    /// only matches the largest file the NSTextView editor is meant to hold.
+    var maximumUTF16Length = 100_000_000
+    /// The most text coloured in one pass, which only matters for very long lines.
     var maximumPaintLength = 80_000
-}
-
-/// Analysis tiers are based on the Release lexer matrix. Native editing and undo remain enabled.
-enum EditorPerformanceMode {
-    case normal, medium, large
-    init(utf16Length: Int) {
-        self = utf16Length <= 1_000_000 ? .normal : utf16Length < 10_000_000 ? .medium : .large
-    }
-    var permitsSyntax: Bool { self == .normal }
 }

@@ -8,7 +8,7 @@ import Combine
     let ruler: LineNumberRulerView
     private var highlighter: SyntaxHighlighter?
     private var language: SyntaxLanguage
-    private(set) var index = LineIndex()
+    let index = LineIndex()
     /// The regular editor font. Syntax bolding changes fonts in the text, so NSTextView.font may
     /// report a bold keyword's font; the gutter, typing and highlighter use this instead.
     private(set) var baseFont: NSFont
@@ -77,8 +77,9 @@ import Combine
         document.utf16Length = storage.length
         document.lineEnding = index.lineEnding
         updateCursor()
-        highlighter = SyntaxHighlighter(textView: textView, baseFont: baseFont, policy: syntaxPolicy)
+        highlighter = SyntaxHighlighter(textView: textView, lineIndex: index, baseFont: baseFont, policy: syntaxPolicy)
         highlighter?.update(language: language)
+        textView.linkAt = { [weak self] characterIndex in self?.highlighter?.link(at: characterIndex) }
         storage.delegate = self
         document.saveBoundary = { [weak textView] in textView?.breakUndoCoalescing() }
         document.attachStorage(read: { [weak storage] in storage?.string ?? "" },
@@ -87,7 +88,7 @@ import Combine
                 _ = self.applySearchReplacement(range: NSRange(location: 0, length: self.textView.textStorage?.length ?? 0), text: value)
             })
         textView.appearanceChanged = { [weak self] in
-            self?.highlighter?.renderVisibleText()
+            self?.highlighter?.refresh()
             self?.ruler.needsDisplay = true
         }
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -192,7 +193,7 @@ import Combine
         guard mask.contains(.editedCharacters) else { return }
         EditorDiagnostics.measure("incremental index") { index.applyEdit(in: storage.mutableString, range: range, delta: delta) }
         EditorDiagnostics.measure("invalidate snapshot") { document.recordEdit() }
-        highlighter?.textStorage(storage, didProcessEditing: mask, range: range, changeInLength: delta)
+        highlighter?.noteEdit(range: range, changeInLength: delta, length: storage.length)
     }
 
     private func restoreEditingState(_ state: UInt64) {
