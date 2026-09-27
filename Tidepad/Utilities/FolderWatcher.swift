@@ -1,14 +1,19 @@
 import CoreServices
 import Foundation
 
-/// Tells the sidebar which folders changed on disk, using FSEvents (the macOS service Finder uses),
-/// so files created by Claude Code, git or a build appear without a manual refresh. Events arrive on
+/// Tells Tidepad which folders changed on disk, using FSEvents (the macOS service Finder uses), so the
+/// sidebar and open files follow changes made by Claude Code, git or a build without a manual refresh. Events arrive on
 /// the main queue, grouped over `latency` seconds, as folder paths.
 final class FolderWatcher {
     private var stream: FSEventStreamRef?
     private let changed: ([String]) -> Void
 
-    init?(folder: URL, latency: TimeInterval = 0.3, changed: @escaping ([String]) -> Void) {
+    convenience init?(folder: URL, latency: TimeInterval = 0.3, changed: @escaping ([String]) -> Void) {
+        self.init(folders: [folder], latency: latency, changed: changed)
+    }
+
+    /// Watches several folders (and everything inside them) with one stream.
+    init?(folders: [URL], latency: TimeInterval = 0.3, changed: @escaping ([String]) -> Void) {
         self.changed = changed
         var context = FSEventStreamContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
                                            retain: nil, release: nil, copyDescription: nil)
@@ -19,7 +24,7 @@ final class FolderWatcher {
             watcher.changed(list.compactMap { $0 as? String })
         }
         let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagNoDefer)
-        guard let stream = FSEventStreamCreate(nil, callback, &context, [folder.path] as CFArray,
+        guard let stream = FSEventStreamCreate(nil, callback, &context, folders.map(\.path) as CFArray,
                                                FSEventStreamEventId(kFSEventStreamEventIdSinceNow), latency, flags) else { return nil }
         self.stream = stream
         FSEventStreamSetDispatchQueue(stream, DispatchQueue.main)

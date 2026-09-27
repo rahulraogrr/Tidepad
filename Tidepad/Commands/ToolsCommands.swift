@@ -14,6 +14,16 @@ private struct ToolsMenuItems: View {
     let context: WorkspaceCommandContext
     var body: some View {
         Group {
+            documentTools
+            Divider()
+            Toggle("Terminal", isOn: Binding(get: { context.terminal.isVisible },
+                                             set: { $0 ? context.terminal.show() : context.terminal.hide() }))
+                .keyboardShortcut("`", modifiers: .control)
+        }
+    }
+
+    private var documentTools: some View {
+        Group {
             Menu("Format") {
                 Button("JSON") { context.run(.formatJSON) }.keyboardShortcut("j", modifiers: [.control, .option])
                 Button("XML") { context.run(.formatXML) }.keyboardShortcut("x", modifiers: [.control, .option])

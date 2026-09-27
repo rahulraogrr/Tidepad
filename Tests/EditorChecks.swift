@@ -100,6 +100,37 @@ import AppKit
         print("PASS project sidebar: folder tree, ignored files, revealing the open file, live updates, recent folders")
     }
 
+    /// The terminal panel: a real login shell on a pseudo-terminal, a command and its output, the
+    /// working directory, and the shell exiting.
+    @MainActor static func checkTerminal(output: URL) {
+        let terminal = TerminalPanel()
+        terminal.workingDirectory = { output }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = terminal.view
+        terminal.show()
+        precondition(terminal.isRunning && terminal.isVisible, "The shell starts when the panel is shown")
+        precondition(terminal.screen.columns > 80, "The grid fits the view: \(terminal.screen.columns) columns")
+        func allText() -> String {
+            let screen = terminal.screen
+            let back = (0..<screen.scrollback.count).map { screen.text(ofRow: $0, scrolledBack: screen.scrollback.count) }
+            return (back + (0..<screen.rows).map { screen.text(ofRow: $0) }).joined(separator: "\n")
+        }
+        func wait(until condition: () -> Bool, seconds: TimeInterval = 15) -> Bool {
+            let deadline = Date().addingTimeInterval(seconds)
+            while !condition() && Date() < deadline { pump(0.1) }
+            return condition()
+        }
+        terminal.view.send?(Array("echo tidepad-$((6*7))\r".utf8))
+        precondition(wait { allText().contains("tidepad-42") }, "A command runs and its output shows:\n\(allText())")
+        terminal.view.send?(Array("pwd\r".utf8))
+        let path = output.resolvingSymlinksInPath().path
+        precondition(wait { allText().components(separatedBy: "\n").contains { $0.hasSuffix(path) } }, "The shell starts in the folder:\n\(allText())")
+        terminal.view.send?(Array("exit\r".utf8))
+        precondition(wait { !terminal.isRunning }, "The shell exits")
+        window.contentView = nil
+        print("PASS terminal: login shell on a pseudo-terminal, command output, working directory, exit")
+    }
+
     @MainActor static func main() throws {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
@@ -193,6 +224,7 @@ import AppKit
         try checkDocumentGroups(output: output)
         try checkScrolling(output: output)
         try checkProjectSidebar(output: output)
+        checkTerminal(output: output)
         print("All native AppKit editor checks passed.")
     }
     @MainActor static func checkSearchEditing() {
@@ -283,6 +315,9 @@ import AppKit
         let handle = try FileHandle(forWritingTo: url)
         try handle.seekToEnd(); try handle.write(contentsOf: Data("four\n".utf8)); try handle.close()
         precondition(FileStamp(url) != document.diskStamp, "An uncoordinated append changes the stamp")
+        // With no unsaved edits in Tidepad, a changed file reloads quietly, without asking.
+        manager.checkOpenFilesOnDisk()
+        precondition(document.text == "three\nfour\n" && !document.hasUnsavedChanges && manager.pendingExternalChanges.isEmpty, "Quiet reload")
         manager.closeAll()
         print("PASS external change detection, reload, own saves ignored")
     }

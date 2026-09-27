@@ -13,6 +13,8 @@ import Observation
     @ObservationIgnored private(set) var pendingExternalChanges: Set<UUID> = []
     @ObservationIgnored private var reviewingExternalChanges = false
     @ObservationIgnored private var activationObserver: NSObjectProtocol?
+    @ObservationIgnored private var folderWatcher: FolderWatcher?
+    @ObservationIgnored private var watchedFolders: Set<String> = []
 
     init() {
         newDocument()
@@ -204,11 +206,35 @@ import Observation
         presenter.onMove = { [weak self] newURL in MainActor.assumeIsolated { self?.fileMoved(id, to: newURL) } }
         presenters[id] = presenter
         NSFileCoordinator.addFilePresenter(presenter)
+        updateFolderWatcher()
     }
 
     private func unwatch(_ id: UUID) {
         if let presenter = presenters.removeValue(forKey: id) { NSFileCoordinator.removeFilePresenter(presenter) }
         pendingExternalChanges.remove(id)
+        updateFolderWatcher()
+    }
+
+    /// Watches the open files' folders with FSEvents, so changes made while Tidepad is the active app
+    /// (by Claude Code or git in the terminal panel, say) are noticed straight away, not only when
+    /// Tidepad is next activated. Most tools don't use file coordination, so the presenters miss them.
+    private func updateFolderWatcher() {
+        let folders = Set(documents.compactMap { $0.fileURL?.deletingLastPathComponent().resolvingSymlinksInPath().path })
+        guard folders != watchedFolders else { return }
+        watchedFolders = folders
+        folderWatcher = folders.isEmpty ? nil : FolderWatcher(folders: folders.map { URL(fileURLWithPath: $0) }) { [weak self] paths in
+            MainActor.assumeIsolated { self?.foldersChanged(paths) }
+        }
+    }
+
+    private func foldersChanged(_ paths: [String]) {
+        // FSEvents reports changes anywhere inside a watched folder; only the open files' folders matter.
+        guard paths.contains(where: { watchedFolders.contains($0.hasSuffix("/") ? String($0.dropLast()) : $0) }) else { return }
+        for document in documents {
+            guard let url = document.fileURL else { continue }
+            if FileStamp(url) != document.diskStamp { pendingExternalChanges.insert(document.id) }
+        }
+        if NSApp?.isActive == true { reviewExternalChanges() }
     }
 
     private func noteExternalChange(_ id: UUID) {
@@ -228,7 +254,9 @@ import Observation
         document.displayName = url.lastPathComponent
     }
 
-    /// Asks about each file changed or deleted by another app since the last review.
+    /// Brings in each file changed or deleted by another app since the last review. A file with no
+    /// unsaved edits in Tidepad reloads quietly, as in VS Code (undo brings back the previous text);
+    /// Tidepad asks only when both sides changed, or when the file was deleted.
     func reviewExternalChanges() {
         guard !reviewingExternalChanges else { return }
         reviewingExternalChanges = true
@@ -241,12 +269,14 @@ import Observation
             }
             let current = FileStamp(url)
             guard current != document.diskStamp else { continue } // Metadata only, or already seen.
+            if !document.hasUnsavedChanges {
+                do { try reloadFromDisk(document) } catch { show(error) }
+                continue
+            }
             selectedID = id
             let alert = NSAlert()
             alert.messageText = "“\(document.displayName)” was changed by another application."
-            alert.informativeText = document.hasUnsavedChanges
-                ? "Reload it from disk? Your unsaved changes in Tidepad will be lost."
-                : "Reload it from disk?"
+            alert.informativeText = "Reload it from disk? Your unsaved changes in Tidepad will be lost."
             alert.addButton(withTitle: "Reload")
             alert.addButton(withTitle: "Keep Tidepad’s Version")
             if alert.runModal() == .alertFirstButtonReturn {

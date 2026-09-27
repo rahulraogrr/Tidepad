@@ -38,5 +38,8 @@ enum TidepadMetrics {
     static let sidebarIdealWidth: CGFloat = 240
     static let sidebarMaximumWidth: CGFloat = 520
     static let editorMinimumWidth: CGFloat = 400
+    static let editorMinimumHeight: CGFloat = 120
+    static let terminalMinimumHeight: CGFloat = 80
+    static let terminalIdealHeight: CGFloat = 240
     static let minimumWindowHeight: CGFloat = 500
 }

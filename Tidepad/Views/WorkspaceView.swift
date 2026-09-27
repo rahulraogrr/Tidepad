@@ -7,6 +7,7 @@ struct WorkspaceView: View {
     let preferences: EditorPreferences
 
     private var project: ProjectFolder { windowDelegate.project }
+    private var terminal: TerminalPanel { windowDelegate.terminal }
 
     var body: some View {
         let _ = EditorDiagnostics.view("WorkspaceView")
@@ -35,7 +36,18 @@ struct WorkspaceView: View {
         }
     }
 
+    /// The editor, with the terminal panel below it when shown and a native draggable divider between.
     private var editorColumn: some View {
+        VSplitView {
+            editorArea.frame(minHeight: TidepadMetrics.editorMinimumHeight, maxHeight: .infinity)
+            if terminal.isVisible {
+                TerminalPanelView(terminal: terminal)
+                    .frame(minHeight: TidepadMetrics.terminalMinimumHeight, idealHeight: TidepadMetrics.terminalIdealHeight)
+            }
+        }
+    }
+
+    private var editorArea: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 ScrollView(.horizontal, showsIndicators: false) {

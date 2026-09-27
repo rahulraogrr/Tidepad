@@ -18,7 +18,9 @@ import AppKit
     let sessions = EditorSessionStore()
     let preferences = EditorPreferences()
     let project = ProjectFolder()
-    lazy var commandContext = WorkspaceCommandContext(documents: manager, sessions: sessions, preferences: preferences, project: project)
+    let terminal = TerminalPanel()
+    lazy var commandContext = WorkspaceCommandContext(documents: manager, sessions: sessions, preferences: preferences,
+                                                      project: project, terminal: terminal)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         sessions.openFiles = { [weak self] urls in self?.open(urls) }
@@ -27,6 +29,11 @@ import AppKit
         // Reopen the last folder, unless Tidepad was launched to open one.
         if project.url == nil { project.restoreLastFolder() }
         if let folder = project.url { commandContext.search.directory = folder.path }
+        // A new shell starts in the open folder, or else the current file's folder.
+        terminal.workingDirectory = { [weak self] in
+            self?.project.url ?? self?.manager.selectedDocument?.fileURL?.deletingLastPathComponent()
+                ?? FileManager.default.homeDirectoryForCurrentUser
+        }
         DispatchQueue.main.async { NativeMenuCoordinator.arrange() }
     }
     func windowDidBecomeKey(_ notification: Notification) {

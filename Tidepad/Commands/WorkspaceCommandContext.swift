@@ -10,13 +10,17 @@ import Observation
     let preferences: EditorPreferences
     /// The folder open in the sidebar, if any.
     let project: ProjectFolder
+    /// The terminal panel at the bottom of the window.
+    let terminal: TerminalPanel
     @ObservationIgnored private var fontController: EditorFontPanelController?
 
-    init(documents: DocumentManager, sessions: EditorSessionStore, preferences: EditorPreferences, project: ProjectFolder) {
+    init(documents: DocumentManager, sessions: EditorSessionStore, preferences: EditorPreferences, project: ProjectFolder,
+         terminal: TerminalPanel) {
         self.documents = documents
         self.sessions = sessions
         self.preferences = preferences
         self.project = project
+        self.terminal = terminal
     }
 
     var document: EditorDocument? { documents.selectedDocument }
