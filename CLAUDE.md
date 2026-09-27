@@ -33,3 +33,8 @@ repository, whoever (or whatever) writes it.
   accessibility and more until rebuilt. Both modes share one engine (storage, `TextCommands`, search,
   lexer) so features aren't written twice; the large-file view uses Apple APIs for what it takes over
   (Core Text, `NSTextInputClient`, `NSUndoManager`, `NSPasteboard`, `NSAccessibility`).
+- Terminal panel (2026-09-28): the shell runs on a pseudo-terminal created with `forkpty` from macOS's
+  C library, not Foundation's `Process`, because `Process` can't give the shell a controlling
+  terminal, which job control, Ctrl-C and full-screen programs need; Terminal.app works the same way.
+  There is no Apple terminal view, so the screen is Tidepad's own xterm-compatible emulator
+  (`TerminalScreen`, Foundation only) drawn with Core Text; input uses `NSTextInputClient`.

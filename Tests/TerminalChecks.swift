@@ -103,6 +103,38 @@ import Foundation
         s = screen("\(esc)[?2026h\(esc)[?1000h\(esc)P+q544e\(esc)\\\(esc)(Bok\(esc)[>1u\(esc)[?u")
         precondition(s.text(ofRow: 0) == "ok", "Unsupported sequences are skipped cleanly: \(s.text(ofRow: 0))")
 
+        // Mouse modes the program asks for.
+        s = screen("\(esc)[?1002h\(esc)[?1006h")
+        precondition(s.mouseTracking == .drags && s.sgrMouse, "Mouse modes on")
+        s.feed("\(esc)[?1002l\(esc)[?1006l")
+        precondition(s.mouseTracking == .none && !s.sgrMouse, "Mouse modes off")
+        s = screen("\(esc)[?1000h\(esc)c")
+        precondition(s.mouseTracking == .none, "Reset turns mouse reporting off")
+
+        // Stable line numbers and selected text, including after lines scroll away and are dropped.
+        s = TerminalScreen(columns: 12, rows: 3)
+        s.maximumScrollback = 2
+        s.feed("one\r\ntwo words\r\nthree\r\nfour\r\nfive")
+        precondition(s.droppedLines == 0 && s.scrollback.count == 2 && s.lineNumbers == 0...4, "Line numbers: \(s.lineNumbers)")
+        precondition(s.lineNumber(ofRow: 0) == 2 && s.lineNumber(ofRow: 0, scrolledBack: 2) == 0)
+        let selection = s.text(from: TerminalPosition(line: 1, column: 4), to: TerminalPosition(line: 3, column: 2))
+        precondition(selection == "words\nthree\nfo", "Selected text: \(selection)")
+        precondition(s.text(from: TerminalPosition(line: 3, column: 2), to: TerminalPosition(line: 1, column: 4)) == selection, "Either direction")
+        s.feed("\r\nsix")
+        precondition(s.droppedLines == 1 && s.lineNumbers == 1...5 && s.line(number: 0).isEmpty, "Dropped lines keep numbers")
+        precondition(s.text(from: TerminalPosition(line: 1, column: 0), to: TerminalPosition(line: 1, column: 12)) == "two words", "Text by stable number")
+        s = screen(60, 2, "open ~/src/App.swift or https://a.b/c?d=1 now")
+        let path = s.word(at: TerminalPosition(line: 0, column: 9))
+        precondition(s.text(from: path.start, to: path.end) == "~/src/App.swift", "Double-click a path")
+        let url = s.word(at: TerminalPosition(line: 0, column: 25))
+        precondition(s.text(from: url.start, to: url.end) == "https://a.b/c?d=1", "Double-click a URL")
+        s = screen(10, 2, "中文 ab")
+        let wide = s.word(at: TerminalPosition(line: 0, column: 1))
+        precondition(s.text(from: wide.start, to: wide.end) == "中文", "Double-click wide characters")
+        s = screen(10, 3, "a\r\nb\r\nc\r\nd")
+        s.clear()
+        precondition(s.scrollback.isEmpty && s.droppedLines == 1 && s.lineNumber(ofRow: 0) == 1, "Clearing keeps numbering")
+
         // Resizing keeps the cursor's line visible.
         s = screen(10, 4, "1\r\n2\r\n3\r\n4")
         s.resize(columns: 5, rows: 2)
@@ -128,6 +160,6 @@ import Foundation
         var fed = 0
         while fed < 10_000_000 { big.feed(chunk); fed += chunk.count }
         let seconds = Date().timeIntervalSince(start)
-        print(String(format: "Terminal checks passed: text, wrapping, cursor, erasing, scroll regions, colours, Unicode, alternate screen, modes, replies, resizing. 10 MB of output in %.2f s.", seconds))
+        print(String(format: "Terminal checks passed: text, wrapping, cursor, erasing, scroll regions, colours, Unicode, alternate screen, modes, mouse modes, selection text and words, replies, resizing. 10 MB of output in %.2f s.", seconds))
     }
 }

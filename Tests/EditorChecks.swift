@@ -122,13 +122,19 @@ import AppKit
         }
         terminal.view.send?(Array("echo tidepad-$((6*7))\r".utf8))
         precondition(wait { allText().contains("tidepad-42") }, "A command runs and its output shows:\n\(allText())")
+        // Select All and Copy, into a private pasteboard so the user's clipboard is untouched.
+        terminal.view.pasteboard = NSPasteboard(name: NSPasteboard.Name("TidepadEditorChecks"))
+        terminal.view.selectAll(nil)
+        terminal.view.copy(nil)
+        precondition(terminal.view.pasteboard.string(forType: .string)?.contains("tidepad-42") == true, "Select All and Copy")
+        terminal.view.clearSelection()
         terminal.view.send?(Array("pwd\r".utf8))
         let path = output.resolvingSymlinksInPath().path
         precondition(wait { allText().components(separatedBy: "\n").contains { $0.hasSuffix(path) } }, "The shell starts in the folder:\n\(allText())")
         terminal.view.send?(Array("exit\r".utf8))
         precondition(wait { !terminal.isRunning }, "The shell exits")
         window.contentView = nil
-        print("PASS terminal: login shell on a pseudo-terminal, command output, working directory, exit")
+        print("PASS terminal: login shell on a pseudo-terminal, command output, select and copy, working directory, exit")
     }
 
     @MainActor static func main() throws {

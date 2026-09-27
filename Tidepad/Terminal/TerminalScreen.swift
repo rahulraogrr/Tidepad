@@ -14,6 +14,17 @@ struct TerminalAttributes: Hashable, Sendable {
     var inverse = false, hidden = false, strikethrough = false
 }
 
+/// A place between two cells: a line (numbered from the oldest line ever kept, so it doesn't change
+/// as output scrolls) and a column boundary, 0 being before the first cell.
+struct TerminalPosition: Comparable, Sendable {
+    var line: Int
+    var column: Int
+    static func < (a: TerminalPosition, b: TerminalPosition) -> Bool { (a.line, a.column) < (b.line, b.column) }
+}
+
+/// Which mouse events the program asked for (xterm modes 1000, 1002 and 1003).
+enum TerminalMouseTracking: Sendable { case none, clicks, drags, motion }
+
 struct TerminalCell: Equatable, Sendable {
     /// Empty for the second half of a wide character.
     var character: String = " "
@@ -27,7 +38,7 @@ struct TerminalCell: Equatable, Sendable {
 ///
 /// Supports what shells, git, less, vim and Claude Code use: cursor movement, erasing, inserting and
 /// deleting, scroll regions, colours (16, 256 and 24-bit), text styles, the alternate screen, bracketed
-/// paste, application cursor keys, window titles, and status reports. Mouse reporting isn't supported yet.
+/// paste, application cursor keys, window titles, status reports and mouse reporting.
 final class TerminalScreen {
     private(set) var columns: Int
     private(set) var rows: Int
@@ -37,6 +48,8 @@ final class TerminalScreen {
     /// Lines that scrolled off the top of the main screen, oldest first.
     private(set) var scrollback: [[TerminalCell]] = []
     var maximumScrollback = 5_000
+    /// Scrollback lines discarded so far, so line numbers stay stable (see TerminalPosition).
+    private(set) var droppedLines = 0
 
     private(set) var cursorRow = 0
     private(set) var cursorColumn = 0
@@ -45,6 +58,9 @@ final class TerminalScreen {
     private(set) var cursorVisible = true
     private(set) var applicationCursorKeys = false
     private(set) var bracketedPaste = false
+    private(set) var mouseTracking = TerminalMouseTracking.none
+    /// Mouse reports in the SGR format (mode 1006), which has no coordinate limit.
+    private(set) var sgrMouse = false
     private var autoWrap = true
     private var insertMode = false
     private var attributes = TerminalAttributes()
@@ -93,6 +109,62 @@ final class TerminalScreen {
         var text = row(index, scrolledBack: offset).map(\.character).joined()
         while text.hasSuffix(" ") { text.removeLast() }
         return text
+    }
+
+    /// The stable number of a row as shown with the view scrolled back `offset` lines.
+    func lineNumber(ofRow row: Int, scrolledBack offset: Int = 0) -> Int {
+        let offset = isAlternateScreen ? 0 : min(max(0, offset), scrollback.count)
+        return droppedLines + (isAlternateScreen ? 0 : scrollback.count - offset) + row
+    }
+
+    /// The numbers of the first and last lines that can be shown.
+    var lineNumbers: ClosedRange<Int> { droppedLines...(lineNumber(ofRow: rows - 1)) }
+
+    /// A line by its stable number; empty if it's gone.
+    func line(number: Int) -> [TerminalCell] {
+        var index = number - droppedLines
+        guard index >= 0 else { return [] }
+        if !isAlternateScreen {
+            if index < scrollback.count { return scrollback[index] }
+            index -= scrollback.count
+        }
+        return index < lines.count ? lines[index] : []
+    }
+
+    /// The text between two positions, with lines joined by newlines and trailing spaces removed.
+    func text(from start: TerminalPosition, to end: TerminalPosition) -> String {
+        let (first, last) = start <= end ? (start, end) : (end, start)
+        var result: [String] = []
+        for number in first.line...last.line {
+            let cells = line(number: number)
+            let from = number == first.line ? min(first.column, cells.count) : 0
+            let to = number == last.line ? min(last.column, cells.count) : cells.count
+            var text = from < to ? cells[from..<to].filter { $0.width != 0 }.map(\.character).joined() : ""
+            while text.hasSuffix(" ") { text.removeLast() }
+            result.append(text)
+        }
+        return result.joined(separator: "\n")
+    }
+
+    /// The word around a position, for double-click: letters, digits and the characters of paths
+    /// and URLs, so ~/src/App.swift or https://example.com/a?b=1 select whole.
+    func word(at position: TerminalPosition) -> (start: TerminalPosition, end: TerminalPosition) {
+        let cells = line(number: position.line)
+        func isWordCharacter(_ index: Int) -> Bool {
+            guard index >= 0 && index < cells.count else { return false }
+            let character = cells[index].width == 0 && index > 0 ? cells[index - 1].character : cells[index].character
+            guard let scalar = character.unicodeScalars.first, !character.isEmpty else { return false }
+            if CharacterSet.alphanumerics.contains(scalar) { return true }
+            return "/._-~:@?=&%+#$!*".unicodeScalars.contains(scalar)
+        }
+        let column = min(max(0, position.column), max(0, cells.count - 1))
+        guard isWordCharacter(column) else {
+            return (TerminalPosition(line: position.line, column: column), TerminalPosition(line: position.line, column: column + 1))
+        }
+        var start = column, end = column + 1
+        while isWordCharacter(start - 1) { start -= 1 }
+        while isWordCharacter(end) { end += 1 }
+        return (TerminalPosition(line: position.line, column: start), TerminalPosition(line: position.line, column: end))
     }
 
     // MARK: Input
@@ -255,9 +327,16 @@ final class TerminalScreen {
             // Lines leaving the top of the whole main screen are kept for scrolling back.
             if scrollTop == 0 && !isAlternateScreen {
                 scrollback.append(removed)
-                if scrollback.count > maximumScrollback { scrollback.removeFirst(scrollback.count - maximumScrollback) }
+                trimScrollback()
             }
         }
+    }
+
+    private func trimScrollback() {
+        guard scrollback.count > maximumScrollback else { return }
+        let excess = scrollback.count - maximumScrollback
+        scrollback.removeFirst(excess)
+        droppedLines += excess
     }
 
     private func scrollDown(_ count: Int) {
@@ -388,8 +467,12 @@ final class TerminalScreen {
             case 47, 1047: switchScreen(alternate: on, saveCursor: false)
             case 1048: on ? saveCursor() : restoreCursor()
             case 1049: switchScreen(alternate: on, saveCursor: true)
+            case 1000: mouseTracking = on ? .clicks : .none
+            case 1002: mouseTracking = on ? .drags : .none
+            case 1003: mouseTracking = on ? .motion : .none
+            case 1006: sgrMouse = on
             case 2004: bracketedPaste = on
-            default: break // Mouse reporting, focus events and synchronised output aren't supported yet.
+            default: break // Focus events and synchronised output aren't needed.
             }
         }
     }
@@ -487,7 +570,7 @@ final class TerminalScreen {
             eraseLine(1)
             for row in 0..<cursorRow { lines[row] = blankLine() }
         case 2: for row in 0..<rows { lines[row] = blankLine() }
-        case 3: scrollback = []
+        case 3: droppedLines += scrollback.count; scrollback = []
         default: break
         }
         pendingWrap = false
@@ -555,6 +638,8 @@ final class TerminalScreen {
         attributes = TerminalAttributes()
         cursorVisible = true
         applicationCursorKeys = false
+        mouseTracking = .none
+        sgrMouse = false
         insertMode = false
         autoWrap = true
         scrollTop = 0
@@ -578,6 +663,7 @@ final class TerminalScreen {
     /// Clears the screen and the scrollback, as ⌘K does in Terminal.app, keeping the cursor's line.
     func clear() {
         let current = lines[cursorRow]
+        droppedLines += scrollback.count
         scrollback = []
         lines = Array(repeating: blankLine(), count: rows)
         lines[0] = current
@@ -612,7 +698,7 @@ final class TerminalScreen {
             }
             if excess > 0 {
                 let removed = lines.prefix(excess)
-                if !isAlternateScreen { scrollback.append(contentsOf: removed) }
+                if !isAlternateScreen { scrollback.append(contentsOf: removed); trimScrollback() }
                 lines.removeFirst(excess)
                 cursorRow = max(0, cursorRow - excess)
             }

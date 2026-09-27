@@ -3,7 +3,11 @@ import AppKit
 /// Shows a TerminalScreen and sends what the user types to the shell. Text is drawn with Core Text
 /// (through NSAttributedString) on a fixed grid, and keyboard input goes through NSTextInputClient,
 /// Apple's text-input protocol, so dead keys and input methods work as in any Mac text view.
-@MainActor final class TerminalView: NSView, @preconcurrency NSTextInputClient {
+///
+/// The mouse selects text (drag, double-click for a word, triple-click for a line; ⌘C copies), unless
+/// the program asked for mouse events, as Claude Code, vim and less can: then clicks, drags and the
+/// scroll wheel go to the program, and holding ⌥ selects text instead, as in iTerm.
+@MainActor final class TerminalView: NSView, @preconcurrency NSTextInputClient, NSMenuItemValidation {
     let screen: TerminalScreen
     /// Bytes for the shell: typed text, control keys, pasted text.
     var send: (([UInt8]) -> Void)?
@@ -22,6 +26,14 @@ import AppKit
     private var scrollOffset = 0
     private var scrollRemainder: CGFloat = 0
     private var markedText = ""
+    /// The selection's fixed end and moving end; nil when nothing is selected.
+    private var selectionAnchor: TerminalPosition?
+    private var selectionHead: TerminalPosition?
+    private var selectionWasAlternate = false
+    /// Where Copy puts text (a private pasteboard in checks).
+    var pasteboard = NSPasteboard.general
+    /// The last cell reported to the program while dragging, so each cell is sent once.
+    private var lastReportedCell: (column: Int, row: Int)?
 
     init(screen: TerminalScreen, font: NSFont) {
         self.screen = screen
@@ -75,7 +87,11 @@ import AppKit
     }
 
     /// The shell wrote something.
-    func outputArrived() { needsDisplay = true }
+    func outputArrived() {
+        // A selection on the main screen doesn't apply to a full-screen program's screen, and back.
+        if selectionAnchor != nil && selectionWasAlternate != screen.isAlternateScreen { clearSelection() }
+        needsDisplay = true
+    }
 
     // MARK: Drawing
 
@@ -85,13 +101,33 @@ import AppKit
         for row in 0..<screen.rows {
             let y = inset + CGFloat(row) * cellHeight
             guard NSRect(x: 0, y: y, width: bounds.width, height: cellHeight).intersects(dirtyRect) else { continue }
-            draw(screen.row(row, scrolledBack: scrollOffset), y: y)
+            let cells = screen.row(row, scrolledBack: scrollOffset)
+            drawBackgrounds(cells, y: y)
+            drawSelection(row: row, length: cells.count, y: y)
+            drawText(cells, y: y)
         }
         drawCursor()
     }
 
-    private func draw(_ cells: [TerminalCell], y: CGFloat) {
-        // Backgrounds first, in runs of the same colour.
+    private var selection: (start: TerminalPosition, end: TerminalPosition)? {
+        guard let anchor = selectionAnchor, let head = selectionHead, anchor != head else { return nil }
+        return anchor < head ? (anchor, head) : (head, anchor)
+    }
+
+    private func drawSelection(row: Int, length: Int, y: CGFloat) {
+        guard let selection else { return }
+        let line = screen.lineNumber(ofRow: row, scrolledBack: scrollOffset)
+        guard line >= selection.start.line && line <= selection.end.line else { return }
+        let from = line == selection.start.line ? selection.start.column : 0
+        let to = line == selection.end.line ? selection.end.column : screen.columns
+        guard to > from else { return }
+        let focused = window?.isKeyWindow == true && window?.firstResponder === self
+        (focused ? NSColor.selectedTextBackgroundColor : NSColor.unemphasizedSelectedTextBackgroundColor).setFill()
+        NSRect(x: x(from), y: y, width: CGFloat(to - from) * cellWidth, height: cellHeight).fill()
+    }
+
+    /// Cell backgrounds, in runs of the same colour.
+    private func drawBackgrounds(_ cells: [TerminalCell], y: CGFloat) {
         var column = 0
         while column < cells.count {
             let background = colors(for: cells[column].attributes).background
@@ -103,9 +139,12 @@ import AppKit
             }
             column = end
         }
-        // Text: runs of plain ASCII with the same attributes are drawn together; other characters are
-        // drawn one by one at their own column, so fallback fonts can't push the grid out of line.
-        column = 0
+    }
+
+    /// Text: runs of plain ASCII with the same attributes are drawn together; other characters are
+    /// drawn one by one at their own column, so fallback fonts can't push the grid out of line.
+    private func drawText(_ cells: [TerminalCell], y: CGFloat) {
+        var column = 0
         while column < cells.count {
             let cell = cells[column]
             if cell.width == 0 { column += 1; continue }
@@ -202,7 +241,7 @@ import AppKit
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if !hasMarkedText() {
             if flags.contains(.command) {
-                if event.charactersIgnoringModifiers == "k" { screen.clear(); scrollOffset = 0; needsDisplay = true; return }
+                if event.charactersIgnoringModifiers == "k" { clearTerminal(nil); return }
                 if let bytes = specialKey(event, flags) { typed(bytes) }
                 return // Other ⌘ keys belong to menus.
             }
@@ -299,18 +338,202 @@ import AppKit
 
     // MARK: Mouse
 
+    /// The program gets mouse events, unless ⌥ is held to select text instead.
+    private func reportsMouse(_ event: NSEvent) -> Bool {
+        screen.mouseTracking != .none && !event.modifierFlags.contains(.option)
+    }
+
+    /// The cell under the mouse (0-based, clamped to the grid).
+    private func cell(for event: NSEvent) -> (column: Int, row: Int) {
+        let point = convert(event.locationInWindow, from: nil)
+        let column = Int((point.x - inset) / cellWidth), row = Int((point.y - inset) / cellHeight)
+        return (min(max(0, column), screen.columns - 1), min(max(0, row), screen.rows - 1))
+    }
+
+    /// The column boundary nearest the mouse, as a stable position.
+    private func position(for event: NSEvent) -> TerminalPosition {
+        let point = convert(event.locationInWindow, from: nil)
+        let column = Int(((point.x - inset) / cellWidth).rounded())
+        let row = min(max(0, Int((point.y - inset) / cellHeight)), screen.rows - 1)
+        return TerminalPosition(line: screen.lineNumber(ofRow: row, scrolledBack: scrollOffset), column: min(max(0, column), screen.columns))
+    }
+
+    /// Sends a mouse event to the program: button 0 left, 1 middle, 2 right, 3 none (motion), 64/65 wheel.
+    private func report(_ event: NSEvent, button: Int, press: Bool, motion: Bool = false) {
+        let cell = cell(for: event)
+        var code = button + (motion ? 32 : 0)
+        let flags = event.modifierFlags
+        if flags.contains(.shift) { code += 4 }
+        if flags.contains(.control) { code += 16 }
+        if screen.sgrMouse {
+            send?(Array("\u{1B}[<\(code);\(cell.column + 1);\(cell.row + 1)\(press ? "M" : "m")".utf8))
+        } else if cell.column < 223 && cell.row < 223 {
+            let value = press ? code : 3 + (code & ~3) // The old format reports every release as button 3.
+            send?([0x1B, 0x5B, 0x4D, UInt8(32 + value), UInt8(33 + cell.column), UInt8(33 + cell.row)])
+        }
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        if reportsMouse(event) {
+            clearSelection()
+            lastReportedCell = cell(for: event)
+            report(event, button: 0, press: true)
+            return
+        }
+        let position = position(for: event)
+        switch event.clickCount {
+        case 2:
+            let word = screen.word(at: TerminalPosition(line: position.line, column: max(0, cell(for: event).column)))
+            selectionAnchor = word.start
+            selectionHead = word.end
+        case 3...:
+            selectionAnchor = TerminalPosition(line: position.line, column: 0)
+            selectionHead = TerminalPosition(line: position.line, column: screen.columns)
+        default:
+            selectionAnchor = position
+            selectionHead = position
+        }
+        selectionWasAlternate = screen.isAlternateScreen
+        needsDisplay = true
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        if reportsMouse(event) {
+            guard screen.mouseTracking == .drags || screen.mouseTracking == .motion else { return }
+            let cell = cell(for: event)
+            if lastReportedCell?.column != cell.column || lastReportedCell?.row != cell.row {
+                lastReportedCell = cell
+                report(event, button: 0, press: true, motion: true)
+            }
+            return
+        }
+        guard selectionAnchor != nil else { return }
+        // Dragging past the top or bottom scrolls through the scrollback.
+        let point = convert(event.locationInWindow, from: nil)
+        if point.y < 0 && scrollOffset < screen.scrollback.count && !screen.isAlternateScreen { scrollOffset += 1 }
+        if point.y > bounds.height && scrollOffset > 0 { scrollOffset -= 1 }
+        selectionHead = position(for: event)
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if reportsMouse(event) {
+            report(event, button: 0, press: false)
+            lastReportedCell = nil
+        }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if reportsMouse(event) { report(event, button: 2, press: true) } else { super.rightMouseDown(with: event) }
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        if reportsMouse(event) { report(event, button: 2, press: false) } else { super.rightMouseUp(with: event) }
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        if reportsMouse(event) { report(event, button: 1, press: true) } else { super.otherMouseDown(with: event) }
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        if reportsMouse(event) { report(event, button: 1, press: false) } else { super.otherMouseUp(with: event) }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        guard screen.mouseTracking == .motion, reportsMouse(event) else { return }
+        let cell = cell(for: event)
+        if lastReportedCell?.column != cell.column || lastReportedCell?.row != cell.row {
+            lastReportedCell = cell
+            report(event, button: 3, press: true, motion: true)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self))
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .iBeam)
     }
 
     override func scrollWheel(with event: NSEvent) {
-        guard !screen.isAlternateScreen else { return }
         let lines = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / cellHeight : event.scrollingDeltaY
         scrollRemainder += lines
         let whole = Int(scrollRemainder)
         scrollRemainder -= CGFloat(whole)
-        let offset = min(max(0, scrollOffset + whole), screen.scrollback.count)
-        if offset != scrollOffset { scrollOffset = offset; needsDisplay = true }
+        guard whole != 0 else { return }
+        if reportsMouse(event) {
+            for _ in 0..<abs(whole) { report(event, button: whole > 0 ? 64 : 65, press: true) }
+        } else if screen.isAlternateScreen {
+            // Full-screen programs without mouse reporting (less, man) scroll with the arrow keys, as in Terminal.app.
+            let key = whole > 0 ? "A" : "B"
+            let sequence = screen.applicationCursorKeys ? "\u{1B}O\(key)" : "\u{1B}[\(key)"
+            send?(Array(String(repeating: sequence, count: abs(whole)).utf8))
+        } else {
+            let offset = min(max(0, scrollOffset + whole), screen.scrollback.count)
+            if offset != scrollOffset { scrollOffset = offset; needsDisplay = true }
+        }
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Select All", action: #selector(selectAll(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Clear", action: #selector(clearTerminal(_:)), keyEquivalent: "")
+        for item in menu.items { item.target = self }
+        return menu
+    }
+
+    // MARK: Selection
+
+    /// Selects from one position to another (used by checks; the mouse does the same).
+    func select(from start: TerminalPosition, to end: TerminalPosition) {
+        selectionAnchor = start
+        selectionHead = end
+        selectionWasAlternate = screen.isAlternateScreen
+        needsDisplay = true
+    }
+
+    var selectedText: String? {
+        guard let selection else { return nil }
+        return screen.text(from: selection.start, to: selection.end)
+    }
+
+    func clearSelection() {
+        guard selectionAnchor != nil else { return }
+        selectionAnchor = nil
+        selectionHead = nil
+        needsDisplay = true
+    }
+
+    /// Edit > Copy.
+    @objc func copy(_ sender: Any?) {
+        guard let text = selectedText, !text.isEmpty else { NSSound.beep(); return }
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
+    /// Edit > Select All: the scrollback and the screen.
+    override func selectAll(_ sender: Any?) {
+        select(from: TerminalPosition(line: screen.lineNumbers.lowerBound, column: 0),
+               to: TerminalPosition(line: screen.lineNumbers.upperBound, column: screen.columns))
+    }
+
+    @objc func clearTerminal(_ sender: Any?) {
+        screen.clear()
+        scrollOffset = 0
+        clearSelection()
+        needsDisplay = true
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(copy(_:)) { return selection != nil }
+        return true
     }
 
     // MARK: NSTextInputClient
