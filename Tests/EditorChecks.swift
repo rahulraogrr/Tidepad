@@ -158,10 +158,26 @@ final class WebSocketInbox: @unchecked Sendable {
         terminal.view.send?(Array("pwd\r".utf8))
         let path = output.resolvingSymlinksInPath().path
         precondition(wait { allText().components(separatedBy: "\n").contains { $0.hasSuffix(path) } }, "The shell starts in the folder:\n\(allText())")
+        // A second terminal in its own tab, separate from the first, then closing it.
+        let first = terminal.selected
+        terminal.newTerminal()
+        guard let second = terminal.selected, let first, second !== first else { fatalError("No second terminal") }
+        precondition(terminal.sessions.count == 2 && second.isRunning && second.number == 2, "A second terminal")
+        func text(_ session: TerminalSession) -> String {
+            (0..<session.screen.rows).map { session.screen.text(ofRow: $0) }.joined(separator: "\n")
+        }
+        second.view.send?(Array("echo second-$((2*21))\r".utf8))
+        precondition(wait { text(second).contains("second-42") }, "The second terminal runs commands:\n\(text(second))")
+        precondition(!text(first).contains("second-42"), "Terminals are separate")
+        terminal.close(second)
+        precondition(terminal.sessions.count == 1 && terminal.selected === first && terminal.isVisible && !second.isRunning,
+                     "Closing a tab ends its shell and selects another")
         terminal.view.send?(Array("exit\r".utf8))
         precondition(wait { !terminal.isRunning }, "The shell exits")
+        terminal.close(first)
+        precondition(terminal.sessions.isEmpty && !terminal.isVisible, "Closing the last tab hides the panel")
         window.contentView = nil
-        print("PASS terminal: login shell on a pseudo-terminal, command output, select and copy, working directory, exit")
+        print("PASS terminal: login shell on a pseudo-terminal, command output, select and copy, working directory, tabs, exit")
     }
 
     /// The Claude Code connection end to end, with Foundation's WebSocket client in place of Claude Code:

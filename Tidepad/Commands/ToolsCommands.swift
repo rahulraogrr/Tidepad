@@ -19,6 +19,7 @@ private struct ToolsMenuItems: View {
             Toggle("Terminal", isOn: Binding(get: { context.terminal.isVisible },
                                              set: { $0 ? context.terminal.show() : context.terminal.hide() }))
                 .keyboardShortcut("`", modifiers: .control)
+            Button("New Terminal") { context.terminal.newTerminal() }
         }
     }
 
