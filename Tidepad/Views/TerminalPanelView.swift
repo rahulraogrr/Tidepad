@@ -4,6 +4,8 @@ import AppKit
 /// The terminal panel: a header with the shell's title and actions, and the terminal itself.
 struct TerminalPanelView: View {
     let terminal: TerminalPanel
+    /// Claude Code is connected to Tidepad.
+    var claudeConnected = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +19,15 @@ struct TerminalPanelView: View {
                         .padding(.leading, TidepadMetrics.tabHorizontalPadding)
                 }
                 Spacer(minLength: 0)
+                if claudeConnected {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.green).frame(width: 6, height: 6)
+                        Text("Claude Code connected").font(.system(size: TidepadMetrics.tabFontSize))
+                    }
+                    .foregroundStyle(Color(nsColor: TidepadTheme.inactiveTabText))
+                    .padding(.trailing, TidepadMetrics.tabHorizontalPadding)
+                    .help("Claude Code sees the open folder, tabs and selection, and shows proposed changes for review")
+                }
                 button("New Shell", icon: "arrow.clockwise", action: terminal.restart)
                 button("Hide Terminal (⌃`)", icon: "xmark", action: terminal.hide)
             }

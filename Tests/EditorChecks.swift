@@ -1,5 +1,32 @@
 import AppKit
 
+/// Collects a WebSocket's messages (for the Claude Code connection check). URLSession calls back on
+/// its own queue, so this isn't tied to the main actor.
+final class WebSocketInbox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [[String: Any]] = []
+    private var didFail = false
+    var messages: [[String: Any]] { lock.lock(); defer { lock.unlock() }; return stored }
+    var failed: Bool { lock.lock(); defer { lock.unlock() }; return didFail }
+
+    func listen(to task: URLSessionWebSocketTask) {
+        task.receive { [self] result in
+            switch result {
+            case .success(let message):
+                var data = Data()
+                if case .string(let text) = message { data = Data(text.utf8) }
+                if case .data(let bytes) = message { data = bytes }
+                if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    lock.lock(); stored.append(object); lock.unlock()
+                }
+                listen(to: task)
+            case .failure:
+                lock.lock(); didFail = true; lock.unlock()
+            }
+        }
+    }
+}
+
 @main struct EditorChecks {
     @MainActor static func pump(_ seconds: TimeInterval = 0.4) {
         let deadline = Date().addingTimeInterval(seconds)
@@ -137,6 +164,97 @@ import AppKit
         print("PASS terminal: login shell on a pseudo-terminal, command output, select and copy, working directory, exit")
     }
 
+    /// The Claude Code connection end to end, with Foundation's WebSocket client in place of Claude Code:
+    /// the lock file, the token check, the MCP handshake, tool calls and selection notifications.
+    @MainActor static func checkClaudeCodeConnection(output: URL) throws {
+        let fm = FileManager.default
+        let config = output.appendingPathComponent("claude-config")
+        let folder = output.appendingPathComponent("ide-project")
+        try? fm.removeItem(at: config)
+        try? fm.removeItem(at: folder)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("App.java")
+        try "class App {\n  int x = 1;\n}\n".write(to: file, atomically: true, encoding: .utf8)
+        let suite = "TidepadEditorChecksIDE"
+        guard let defaults = UserDefaults(suiteName: suite) else { fatalError("Missing defaults") }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let manager = DocumentManager()
+        manager.closeAll()
+        let sessions = EditorSessionStore()
+        let project = ProjectFolder(defaults: defaults)
+        let claude = ClaudeCodeConnection(manager: manager, sessions: sessions, project: project, server: IDEServer(configDirectory: config))
+        sessions.selectionChanged = { claude.selectionChanged(in: $0) }
+        project.open(folder)
+        claude.start()
+        func wait(_ seconds: TimeInterval = 5, until condition: () -> Bool) -> Bool {
+            let deadline = Date().addingTimeInterval(seconds)
+            while !condition() && Date() < deadline { pump(0.05) }
+            return condition()
+        }
+        precondition(wait { claude.server.port != nil }, "The server starts")
+        guard let port = claude.server.port, let lockURL = claude.server.lockFile else { fatalError("No port") }
+        let lock = try JSONSerialization.jsonObject(with: Data(contentsOf: lockURL)) as? [String: Any] ?? [:]
+        precondition(lock["authToken"] as? String == claude.server.token && lock["ideName"] as? String == "Tidepad"
+                     && lock["transport"] as? String == "ws" && (lock["pid"] as? Int) == Int(ProcessInfo.processInfo.processIdentifier), "Lock file: \(lock)")
+        precondition((lock["workspaceFolders"] as? [String]) == [folder.resolvingSymlinksInPath().path], "The open folder is the workspace")
+        let permissions = try fm.attributesOfItem(atPath: lockURL.path)[.posixPermissions] as? NSNumber
+        precondition(permissions?.intValue == 0o600, "Only the user can read the lock file")
+        precondition(claude.server.token.count == 32 && claude.terminalEnvironment["CLAUDE_CODE_SSE_PORT"] == String(port))
+
+        func connect(token: String) -> (URLSessionWebSocketTask, WebSocketInbox) {
+            var request = URLRequest(url: URL(string: "ws://127.0.0.1:\(port)")!)
+            request.setValue(token, forHTTPHeaderField: "x-claude-code-ide-authorization")
+            let task = URLSession.shared.webSocketTask(with: request)
+            let inbox = WebSocketInbox()
+            task.resume()
+            inbox.listen(to: task)
+            return (task, inbox)
+        }
+        func send(_ task: URLSessionWebSocketTask, _ message: [String: Any]) {
+            let data = try! JSONSerialization.data(withJSONObject: message)
+            task.send(.string(String(decoding: data, as: UTF8.self))) { _ in }
+        }
+
+        // A wrong token is refused.
+        let (intruder, intruderInbox) = connect(token: String(repeating: "0", count: 32))
+        send(intruder, ["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": [String: Any]()])
+        let refused = wait(3) { intruderInbox.failed || !intruderInbox.messages.isEmpty }
+        _ = refused
+        precondition(intruderInbox.messages.isEmpty, "A client without the token gets no answer")
+        precondition(claude.connectedClients == 0, "A refused client doesn't count as connected")
+        intruder.cancel(with: .normalClosure, reason: nil)
+
+        // The right token: handshake, a tool call, selection notifications.
+        let (client, inbox) = connect(token: claude.server.token)
+        send(client, ["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": ["protocolVersion": "2025-03-26"]])
+        precondition(wait { inbox.messages.contains { $0["id"] as? Int == 1 } }, "Handshake reply")
+        let hello = inbox.messages.first { $0["id"] as? Int == 1 }?["result"] as? [String: Any]
+        precondition((hello?["serverInfo"] as? [String: Any])?["name"] as? String == "tidepad", "Server info")
+        precondition(wait { claude.connectedClients == 1 }, "The client is connected")
+        send(client, ["jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": ["name": "getWorkspaceFolders", "arguments": [String: Any]()]])
+        precondition(wait { inbox.messages.contains { $0["id"] as? Int == 2 } }, "Tool reply")
+        let folders = inbox.messages.first { $0["id"] as? Int == 2 }.flatMap { (($0["result"] as? [String: Any])?["content"] as? [[String: Any]])?.first?["text"] as? String } ?? ""
+        precondition(folders.contains(folder.resolvingSymlinksInPath().lastPathComponent), "Workspace folders: \(folders)")
+        send(client, ["jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": ["name": "openFile", "arguments": ["filePath": file.path, "startText": "int x"]]])
+        precondition(wait { inbox.messages.contains { $0["id"] as? Int == 3 } } && manager.selectedDocument?.fileURL?.lastPathComponent == "App.java", "openFile")
+        guard let document = manager.selectedDocument else { fatalError("No document") }
+        let session = sessions.session(for: document)
+        pump(0.2)
+        precondition(session.textView.selectedRange() == NSRange(location: 14, length: 5), "openFile selects the text: \(session.textView.selectedRange())")
+        session.textView.setSelectedRange(NSRange(location: 14, length: 9))
+        precondition(wait { inbox.messages.contains { ($0["method"] as? String) == "selection_changed" && (($0["params"] as? [String: Any])?["text"] as? String) == "int x = 1" } },
+                     "Selections are sent to Claude Code")
+        let change = inbox.messages.last { ($0["method"] as? String) == "selection_changed" }?["params"] as? [String: Any]
+        let start = ((change?["selection"] as? [String: Any])?["start"] as? [String: Any])
+        precondition(start?["line"] as? Int == 1 && start?["character"] as? Int == 2, "Selection position: \(String(describing: start))")
+        client.cancel(with: .normalClosure, reason: nil)
+        precondition(wait { claude.connectedClients == 0 }, "Disconnects are noticed (still \(claude.connectedClients))")
+        claude.stop()
+        precondition(!fm.fileExists(atPath: lockURL.path), "Stopping removes the lock file")
+        manager.closeAll()
+        print("PASS Claude Code connection: lock file, token check, handshake, tool calls, openFile selection, selection notifications, disconnect")
+    }
+
     @MainActor static func main() throws {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
@@ -231,6 +349,7 @@ import AppKit
         try checkScrolling(output: output)
         try checkProjectSidebar(output: output)
         checkTerminal(output: output)
+        try checkClaudeCodeConnection(output: output)
         print("All native AppKit editor checks passed.")
     }
     @MainActor static func checkSearchEditing() {

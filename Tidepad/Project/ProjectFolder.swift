@@ -16,6 +16,8 @@ import Observation
     private(set) var generation = 0
     /// Called after a folder opens, e.g. to point Find in Files at it.
     @ObservationIgnored var didOpen: ((URL) -> Void)?
+    /// Called after the folder closes.
+    @ObservationIgnored var didClose: (() -> Void)?
     /// Creates a file (false) or folder (true) where the tree's selection is; set by the file tree.
     @ObservationIgnored var createItem: ((_ directory: Bool) -> Void)?
 
@@ -55,6 +57,7 @@ import Observation
         showSidebar = false
         generation += 1
         defaults.removeObject(forKey: Self.lastKey)
+        didClose?()
     }
 
     /// Re-reads `.gitignore` after it changes.

@@ -11,6 +11,8 @@ import Observation
     private(set) var isRunning = false
     /// Where a new shell starts.
     @ObservationIgnored var workingDirectory: @MainActor () -> URL = { FileManager.default.homeDirectoryForCurrentUser }
+    /// Extra environment variables for new shells (the Claude Code connection's port).
+    @ObservationIgnored var environment: @MainActor () -> [String: String] = { [:] }
     let screen = TerminalScreen()
     @ObservationIgnored private var shell: PseudoTerminal?
     @ObservationIgnored private var createdView: TerminalView?
@@ -67,7 +69,7 @@ import Observation
         terminal.onOutput = { [weak self] data in self?.received(data) }
         terminal.onExit = { [weak self] in self?.exited() }
         do {
-            try terminal.start(directory: workingDirectory(), columns: screen.columns, rows: screen.rows)
+            try terminal.start(directory: workingDirectory(), columns: screen.columns, rows: screen.rows, environment: environment())
             shell = terminal
             isRunning = true
         } catch {

@@ -19,13 +19,21 @@ import AppKit
     let preferences = EditorPreferences()
     let project = ProjectFolder()
     let terminal = TerminalPanel()
+    lazy var claude = ClaudeCodeConnection(manager: manager, sessions: sessions, project: project)
     lazy var commandContext = WorkspaceCommandContext(documents: manager, sessions: sessions, preferences: preferences,
                                                       project: project, terminal: terminal)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         sessions.openFiles = { [weak self] urls in self?.open(urls) }
         // Find in Files searches the open folder.
-        project.didOpen = { [weak self] folder in self?.commandContext.search.directory = folder.path }
+        project.didOpen = { [weak self] folder in
+            self?.commandContext.search.directory = folder.path
+            self?.claude.folderChanged()
+        }
+        project.didClose = { [weak self] in self?.claude.folderChanged() }
+        // Claude Code connects to Tidepad as it does to VS Code (see ClaudeCodeConnection).
+        claude.start()
+        sessions.selectionChanged = { [weak self] session in self?.claude.selectionChanged(in: session) }
         // Reopen the last folder, unless Tidepad was launched to open one.
         if project.url == nil { project.restoreLastFolder() }
         if let folder = project.url { commandContext.search.directory = folder.path }
@@ -34,6 +42,7 @@ import AppKit
             self?.project.url ?? self?.manager.selectedDocument?.fileURL?.deletingLastPathComponent()
                 ?? FileManager.default.homeDirectoryForCurrentUser
         }
+        terminal.environment = { [weak self] in self?.claude.terminalEnvironment ?? [:] }
         DispatchQueue.main.async { NativeMenuCoordinator.arrange() }
     }
     func windowDidBecomeKey(_ notification: Notification) {
@@ -54,6 +63,8 @@ import AppKit
         return true
     }
     func application(_ application: NSApplication, open urls: [URL]) { open(urls) }
+    /// Removes the lock file, so Claude Code doesn't offer to connect to a Tidepad that has quit.
+    func applicationWillTerminate(_ notification: Notification) { claude.stop() }
 
     /// Folders open as the project (the first one, if several); files open in tabs.
     func open(_ urls: [URL]) {

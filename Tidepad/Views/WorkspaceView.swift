@@ -41,7 +41,7 @@ struct WorkspaceView: View {
         VSplitView {
             editorArea.frame(minHeight: TidepadMetrics.editorMinimumHeight, maxHeight: .infinity)
             if terminal.isVisible {
-                TerminalPanelView(terminal: terminal)
+                TerminalPanelView(terminal: terminal, claudeConnected: windowDelegate.claude.connectedClients > 0)
                     .frame(minHeight: TidepadMetrics.terminalMinimumHeight, idealHeight: TidepadMetrics.terminalIdealHeight)
             }
         }

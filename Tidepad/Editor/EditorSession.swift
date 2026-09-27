@@ -13,6 +13,8 @@ import Combine
     /// report a bold keyword's font; the gutter, typing and highlighter use this instead.
     private(set) var baseFont: NSFont
     private var appliedOptions: EditorDisplayOptions?
+    /// Called when the selection changes (the Claude Code connection passes it on).
+    var selectionChanged: ((EditorSession) -> Void)?
 
     init(document: EditorDocument, fontConfiguration: EditorFontConfiguration = .standard,
          syntaxPolicy: SyntaxPolicy = SyntaxPolicy()) {
@@ -218,6 +220,7 @@ import Combine
         // New typing uses the regular font, even right after a bold keyword.
         if textView.typingAttributes[.font] as? NSFont != baseFont { textView.typingAttributes[.font] = baseFont }
         updateCursor()
+        selectionChanged?(self)
     }
 
     private func updateCursor() {
@@ -240,11 +243,14 @@ import Combine
     private var sessions: [UUID: EditorSession] = [:]
     /// Opens files dropped on an editor.
     var openFiles: (([URL]) -> Void)?
+    /// Called when the selection changes in any editor.
+    var selectionChanged: ((EditorSession) -> Void)?
     func session(for document: EditorDocument) -> EditorSession {
         if let session = sessions[document.id] { return session }
         let session = EditorSession(document: document)
         session.textView.registerForDraggedTypes([.fileURL])
         session.textView.openFiles = { [weak self] urls in self?.openFiles?(urls) }
+        session.selectionChanged = { [weak self] session in self?.selectionChanged?(session) }
         sessions[document.id] = session
         return session
     }

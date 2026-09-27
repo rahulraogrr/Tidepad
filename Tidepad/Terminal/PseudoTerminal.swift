@@ -25,8 +25,9 @@ final class PseudoTerminal {
     }
 
     /// Starts the shell as a login shell (as Terminal.app does, so ~/.zprofile sets up PATH) in `directory`.
-    func start(shell: String = PseudoTerminal.defaultShell(), directory: URL, columns: Int, rows: Int) throws {
-        var environment = ProcessInfo.processInfo.environment
+    func start(shell: String = PseudoTerminal.defaultShell(), directory: URL, columns: Int, rows: Int,
+               environment extra: [String: String] = [:]) throws {
+        var environment = ProcessInfo.processInfo.environment.merging(extra) { $1 }
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
         environment["TERM_PROGRAM"] = "Tidepad"
