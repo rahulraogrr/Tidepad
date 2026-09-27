@@ -15,9 +15,9 @@ private struct ToolsMenuItems: View {
     var body: some View {
         Group {
             Menu("Format") {
-                Button("JSON") { context.run(.formatJSON) }
-                Button("XML") { context.run(.formatXML) }
-                Button("SQL") { context.run(.formatSQL) }
+                Button("JSON") { context.run(.formatJSON) }.keyboardShortcut("j", modifiers: [.control, .option])
+                Button("XML") { context.run(.formatXML) }.keyboardShortcut("x", modifiers: [.control, .option])
+                Button("SQL") { context.run(.formatSQL) }.keyboardShortcut("s", modifiers: [.control, .option])
             }
             Menu("Convert Case") {
                 Button("UPPERCASE") { context.run(.convertCase(.upper)) }
