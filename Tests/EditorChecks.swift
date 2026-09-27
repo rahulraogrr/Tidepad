@@ -241,13 +241,17 @@ import AppKit
         pump()
         precondition(document.cursorLine == 200 && document.lineCount == 250)
         precondition(session.scrollView.contentView.bounds.minY > 0)
-        let point = session.ruler.convert(NSPoint(x: 0, y: lineRect.minY + session.textView.textContainerOrigin.y), from: session.textView)
+        // Compare with line 200's position now: applying syntax fonts to newly visible text makes TextKit
+        // re-estimate line positions above it, and NSTextView moves the scroll origin by the same amount
+        // so the visible text stays put. The gutter must follow the current geometry.
         let lineRectNow = layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: offset), effectiveRange: nil)
+        let point = session.ruler.convert(NSPoint(x: 0, y: lineRectNow.minY + session.textView.textContainerOrigin.y), from: session.textView)
         precondition(point.y > 0 && point.y < 150, """
-            Gutter coordinates must track vertical scroll: point.y \(point.y), line 200 minY before \(lineRect.minY) / \
-            now \(lineRectNow.minY), scrolled to \(lineRect.minY - 50), clip minY now \(session.scrollView.contentView.bounds.minY), \
-            text view height \(session.textView.frame.height)
+            Gutter coordinates must track vertical scroll: point.y \(point.y), line 200 minY \(lineRectNow.minY), \
+            clip minY \(session.scrollView.contentView.bounds.minY)
             """)
+        let visibleOffset = lineRectNow.minY - session.scrollView.contentView.bounds.minY
+        precondition(abs(visibleOffset - 50) < 1, "The visible text must not jump when syntax fonts apply: \(visibleOffset)")
         let attributes = layout.temporaryAttributes(atCharacterIndex: offset, effectiveRange: nil)
         precondition(attributes[.foregroundColor] != nil, "Scrolling must color newly visible text")
         if let bitmap = session.scrollView.bitmapImageRepForCachingDisplay(in: session.scrollView.bounds) {
