@@ -20,8 +20,19 @@ import Observation
         // like Notepad++'s "modified by another program" check.
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reviewExternalChanges() }
+            MainActor.assumeIsolated { self?.checkOpenFilesOnDisk() }
         }
+    }
+
+    /// NSFilePresenter only hears about coordinated writes; tools like `echo >>`, git or rsync write
+    /// without coordination. So, like NSDocument, also compare each open file's modification date and
+    /// size when Tidepad becomes active. One stat per open file; contents aren't read.
+    func checkOpenFilesOnDisk() {
+        for document in documents {
+            guard let url = document.fileURL else { continue }
+            if FileStamp(url) != document.diskStamp { pendingExternalChanges.insert(document.id) }
+        }
+        reviewExternalChanges()
     }
 
     func newDocument() {

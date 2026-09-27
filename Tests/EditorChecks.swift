@@ -183,6 +183,10 @@ import AppKit
         precondition(manager.save(document))
         pump(1.5)
         precondition(manager.pendingExternalChanges.isEmpty, "Tidepad's own save isn't an external change")
+        // An uncoordinated write (like `echo >>` in Terminal) is found by the stamp check on activation.
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd(); try handle.write(contentsOf: Data("four\n".utf8)); try handle.close()
+        precondition(FileStamp(url) != document.diskStamp, "An uncoordinated append changes the stamp")
         manager.closeAll()
         print("PASS external change detection, reload, own saves ignored")
     }
