@@ -106,6 +106,20 @@ import Foundation
         precondition(overridden.syntaxLanguage == .json && !overridden.hasUnsavedChanges)
         overridden.languageOverride = nil
         precondition(overridden.syntaxLanguage == .java)
+        // File stamps tell real content changes (by other apps) from metadata-only notifications.
+        let stamped = directory.appendingPathComponent("stamp.txt")
+        try "a".write(to: stamped, atomically: false, encoding: .utf8)
+        let firstStamp = FileStamp(stamped)
+        precondition(firstStamp != nil)
+        let stampedDocument = try service.read(stamped)
+        precondition(stampedDocument.diskStamp == firstStamp, "Loading records the file's stamp")
+        try "abc".write(to: stamped, atomically: false, encoding: .utf8)
+        precondition(FileStamp(stamped) != firstStamp, "The stamp changes with the content")
+        try FileManager.default.removeItem(at: stamped)
+        precondition(FileStamp(stamped) == nil, "No stamp for a missing file")
+        let kept = EditorDocument(text: "x")
+        kept.markUnsaved()
+        precondition(kept.hasUnsavedChanges, "A deleted-but-kept document needs saving")
         print("Core checks passed: line offsets, Unicode, CRLF/CR/LF, dirty state, UTF-8/UTF-16 file round trips.")
     }
 }

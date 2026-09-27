@@ -30,6 +30,8 @@ enum LineEnding: String, CaseIterable {
 @Observable final class EditorDocument: Identifiable {
     @ObservationIgnored var preparedLines: LineIndex.Prepared?
     @ObservationIgnored var saveBoundary: (() -> Void)?
+    /// The file version this document was last loaded from or saved to.
+    @ObservationIgnored var diskStamp: FileStamp?
     let id = UUID()
     var fileURL: URL?
     var displayName: String
@@ -103,6 +105,14 @@ enum LineEnding: String, CaseIterable {
         savedState = state
         if readLiveText == nil { savedText = storedText }
         hasUnsavedChanges = false
+    }
+
+    /// Marks the document as having changes to save without editing it, e.g. when its file was
+    /// deleted by another app and the user keeps it open. Undo can't return to this "saved" state.
+    func markUnsaved() {
+        savedState = UInt64.max
+        savedText = nil
+        hasUnsavedChanges = true
     }
 
     var encodingName: String {

@@ -1,5 +1,22 @@
 import Foundation
 
+/// Identifies one version of a file on disk (modification date and size), so real changes by other
+/// apps can be told apart from metadata-only notifications and from Tidepad's own saves.
+struct FileStamp: Equatable, Sendable {
+    let modified: Date?
+    let size: Int?
+
+    /// nil when the file doesn't exist (or can't be inspected).
+    init?(_ url: URL) {
+        var fresh = url
+        fresh.removeAllCachedResourceValues()
+        guard let values = try? fresh.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+              values.contentModificationDate != nil || values.fileSize != nil else { return nil }
+        modified = values.contentModificationDate
+        size = values.fileSize
+    }
+}
+
 /// Decode off the main actor; AppKit receives the resulting immutable value on the main actor.
 struct LoadedText: Sendable {
     let url: URL
@@ -7,11 +24,13 @@ struct LoadedText: Sendable {
     let encoding: String.Encoding
     let hasBOM: Bool
     let lines: LineIndex.Prepared
+    let stamp: FileStamp?
     func makeDocument() -> EditorDocument {
         let document = EditorDocument(fileURL: url, displayName: url.lastPathComponent,
             text: text, encoding: encoding, lineEnding: lines.lineEnding)
         document.hasByteOrderMark = hasBOM
         document.preparedLines = lines
+        document.diskStamp = stamp
         return document
     }
 }
@@ -20,6 +39,7 @@ struct TextFileService {
     func read(_ url: URL) throws -> EditorDocument { try load(url).makeDocument() }
 
     func load(_ url: URL) throws -> LoadedText {
+        let stamp = FileStamp(url) // Before reading: a change during the read then still looks external.
         let data = try Data(contentsOf: url)
         let signatures: [(bytes: [UInt8], encoding: String.Encoding)] = [
             ([0x00, 0x00, 0xFE, 0xFF], .utf32BigEndian),
@@ -50,7 +70,7 @@ struct TextFileService {
             }
         }
         return LoadedText(url: url, text: text, encoding: encoding, hasBOM: signature != nil,
-                          lines: LineIndex.Prepared(text))
+                          lines: LineIndex.Prepared(text), stamp: stamp)
     }
 
     func write(_ document: EditorDocument, to url: URL) throws {

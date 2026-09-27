@@ -20,6 +20,7 @@ import AppKit
     lazy var commandContext = WorkspaceCommandContext(documents: manager, sessions: sessions, preferences: preferences)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        sessions.openFiles = { [weak self] urls in self?.manager.openInBackground(urls) }
         DispatchQueue.main.async { NativeMenuCoordinator.arrange() }
     }
     func windowDidBecomeKey(_ notification: Notification) {
@@ -57,6 +58,7 @@ struct WindowDelegateBridge: NSViewRepresentable {
             super.viewDidMoveToWindow()
             if let delegate {
                 delegate.commandContext.window = window
+                delegate.commandContext.syncWindowDocumentState()
                 window?.delegate = delegate
                 window?.tabbingMode = .disallowed
                 if let window { EditorDiagnostics.launched(window: window, context: delegate.commandContext) }

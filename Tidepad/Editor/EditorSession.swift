@@ -237,9 +237,13 @@ import Combine
 
 @MainActor final class EditorSessionStore: ObservableObject {
     private var sessions: [UUID: EditorSession] = [:]
+    /// Opens files dropped on an editor.
+    var openFiles: (([URL]) -> Void)?
     func session(for document: EditorDocument) -> EditorSession {
         if let session = sessions[document.id] { return session }
         let session = EditorSession(document: document)
+        session.textView.registerForDraggedTypes([.fileURL])
+        session.textView.openFiles = { [weak self] urls in self?.openFiles?(urls) }
         sessions[document.id] = session
         return session
     }

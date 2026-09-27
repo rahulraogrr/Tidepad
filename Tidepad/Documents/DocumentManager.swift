@@ -8,8 +8,21 @@ import Observation
     private let files = TextFileService()
     private var untitledCount = 0
     var selectedDocument: EditorDocument? { documents.first { $0.id == selectedID } }
+    @ObservationIgnored private var presenters: [UUID: DocumentFilePresenter] = [:]
+    /// Documents whose files changed on disk and still need the user's decision.
+    @ObservationIgnored private(set) var pendingExternalChanges: Set<UUID> = []
+    @ObservationIgnored private var reviewingExternalChanges = false
+    @ObservationIgnored private var activationObserver: NSObjectProtocol?
 
-    init() { newDocument() }
+    init() {
+        newDocument()
+        // Changes made while Tidepad is in the background are reviewed when it becomes active,
+        // like Notepad++'s "modified by another program" check.
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reviewExternalChanges() }
+        }
+    }
 
     func newDocument() {
         untitledCount += 1
@@ -54,6 +67,7 @@ import Observation
                 let document = try files.read(url)
                 documents.append(document)
                 selectedID = document.id
+                watch(document)
                 noteRecent(url)
             } catch { show(error) }
         }
@@ -64,6 +78,7 @@ import Observation
             selectedID = existing.id; return
         }
         documents.append(document); selectedID = document.id
+        watch(document)
         if let url = document.fileURL { noteRecent(url) }
     }
 
@@ -84,20 +99,29 @@ import Observation
             alert.runModal()
             return false
         }
-        do {
-            try files.write(document, to: destination)
-            document.markSaved(at: destination)
-            noteRecent(destination)
-            return true
-        } catch {
+        // A coordinated write, so other apps' file presenters are told, and ours isn't.
+        var coordinationError: NSError?
+        var writeError: Error?
+        NSFileCoordinator(filePresenter: presenters[document.id]).coordinate(
+            writingItemAt: destination, options: .forReplacing, error: &coordinationError) { url in
+            do { try files.write(document, to: url) } catch { writeError = error }
+        }
+        if let error = writeError ?? coordinationError {
             show(error)
             return false
         }
+        document.markSaved(at: destination)
+        document.diskStamp = FileStamp(destination)
+        pendingExternalChanges.remove(document.id)
+        watch(document)
+        noteRecent(destination)
+        return true
     }
 
     func close(_ document: EditorDocument) {
         guard confirmClose(document), let index = documents.firstIndex(where: { $0.id == document.id }) else { return }
         documents.remove(at: index)
+        unwatch(document.id)
         if selectedID == document.id {
             selectedID = documents.isEmpty ? nil : documents[min(index, documents.count - 1)].id
         }
@@ -123,6 +147,7 @@ import Observation
         }
         let closing = Set(targets.map(\.id))
         documents.removeAll { closing.contains($0.id) }
+        closing.forEach(unwatch)
         selectedID = documents.contains(where: { $0.id == original }) ? original : documents.first?.id
     }
 
@@ -152,5 +177,103 @@ import Observation
     }
 
     func confirmCloseAll() -> Bool { documents.allSatisfy { confirmClose($0) } }
+
+    // MARK: Changes made by other apps
+
+    private func watch(_ document: EditorDocument) {
+        unwatch(document.id)
+        guard let url = document.fileURL else { return }
+        let presenter = DocumentFilePresenter(documentID: document.id, url: url)
+        let id = document.id
+        presenter.onChange = { [weak self] in MainActor.assumeIsolated { self?.noteExternalChange(id) } }
+        presenter.onDelete = { [weak self] in MainActor.assumeIsolated { self?.noteExternalChange(id) } }
+        presenter.onMove = { [weak self] newURL in MainActor.assumeIsolated { self?.fileMoved(id, to: newURL) } }
+        presenters[id] = presenter
+        NSFileCoordinator.addFilePresenter(presenter)
+    }
+
+    private func unwatch(_ id: UUID) {
+        if let presenter = presenters.removeValue(forKey: id) { NSFileCoordinator.removeFilePresenter(presenter) }
+        pendingExternalChanges.remove(id)
+    }
+
+    private func noteExternalChange(_ id: UUID) {
+        pendingExternalChanges.insert(id)
+        if NSApp?.isActive == true { reviewExternalChanges() }
+    }
+
+    private func fileMoved(_ id: UUID, to url: URL) {
+        guard let document = documents.first(where: { $0.id == id }) else { return }
+        // Moving to the Trash is a deletion as far as the user is concerned.
+        if url.pathComponents.contains(".Trash") { noteExternalChange(id); return }
+        document.fileURL = url
+        document.displayName = url.lastPathComponent
+    }
+
+    /// Asks about each file changed or deleted by another app since the last review.
+    func reviewExternalChanges() {
+        guard !reviewingExternalChanges else { return }
+        reviewingExternalChanges = true
+        defer { reviewingExternalChanges = false }
+        while let id = pendingExternalChanges.popFirst() {
+            guard let document = documents.first(where: { $0.id == id }), let url = document.fileURL else { continue }
+            if url.pathComponents.contains(".Trash") || !FileManager.default.fileExists(atPath: url.path) {
+                askAboutDeletedFile(document)
+                continue
+            }
+            let current = FileStamp(url)
+            guard current != document.diskStamp else { continue } // Metadata only, or already seen.
+            selectedID = id
+            let alert = NSAlert()
+            alert.messageText = "“\(document.displayName)” was changed by another application."
+            alert.informativeText = document.hasUnsavedChanges
+                ? "Reload it from disk? Your unsaved changes in Tidepad will be lost."
+                : "Reload it from disk?"
+            alert.addButton(withTitle: "Reload")
+            alert.addButton(withTitle: "Keep Tidepad’s Version")
+            if alert.runModal() == .alertFirstButtonReturn {
+                do { try reloadFromDisk(document) } catch { show(error) }
+            } else {
+                document.diskStamp = current // Don't ask again about this version.
+                if !document.hasUnsavedChanges { document.markUnsaved() } // The editor now differs from disk.
+            }
+        }
+    }
+
+    private func askAboutDeletedFile(_ document: EditorDocument) {
+        selectedID = document.id
+        let alert = NSAlert()
+        alert.messageText = "“\(document.displayName)” was deleted or moved to the Trash by another application."
+        alert.informativeText = "Keep it open in Tidepad? You can save it again to recreate the file."
+        alert.addButton(withTitle: "Keep Open")
+        alert.addButton(withTitle: "Close")
+        if alert.runModal() == .alertFirstButtonReturn {
+            document.markUnsaved()
+        } else if let index = documents.firstIndex(where: { $0.id == document.id }) {
+            documents.remove(at: index)
+            unwatch(document.id)
+            if selectedID == document.id { selectedID = documents.isEmpty ? nil : documents[min(index, documents.count - 1)].id }
+        }
+    }
+
+    /// Replaces the document's text with the file's current contents, as one undoable step, and
+    /// marks it saved. Encoding, BOM and line endings follow the file.
+    func reloadFromDisk(_ document: EditorDocument) throws {
+        guard let url = document.fileURL else { return }
+        var coordinationError: NSError?
+        var result: Result<LoadedText, Error>?
+        NSFileCoordinator(filePresenter: presenters[document.id]).coordinate(
+            readingItemAt: url, options: [], error: &coordinationError) { readURL in
+            result = Result { try files.load(readURL) }
+        }
+        if let coordinationError { throw coordinationError }
+        guard let loaded = try result?.get() else { return }
+        document.encoding = loaded.encoding
+        document.hasByteOrderMark = loaded.hasBOM
+        if document.text != loaded.text { document.text = loaded.text }
+        document.markSaved(at: url)
+        document.diskStamp = loaded.stamp
+        pendingExternalChanges.remove(document.id)
+    }
     private func show(_ error: Error) { NSAlert(error: error).runModal() }
 }

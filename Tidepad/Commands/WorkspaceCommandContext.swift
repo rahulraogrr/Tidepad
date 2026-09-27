@@ -23,6 +23,13 @@ import Observation
     }
     var hasDocument: Bool { document != nil }
 
+    /// Native title bar: the selected file's proxy icon (⌘-click for its path, drag to share) and the
+    /// unsaved-changes dot in the close button.
+    func syncWindowDocumentState() {
+        window?.representedURL = document?.fileURL
+        window?.isDocumentEdited = documents.documents.contains { $0.hasUnsavedChanges }
+    }
+
     func save(asNew: Bool = false) {
         if let document { documents.save(document, saveAs: asNew) }
     }

@@ -28,6 +28,7 @@ struct WorkspaceView: View {
                 .accessibilityLabel("New document")
             }
             .frame(height: TidepadMetrics.tabBarHeight)
+            .dropDestination(for: URL.self) { urls, _ in openDropped(urls) }
             .foregroundStyle(Color(nsColor: TidepadTheme.chromeText))
             .background(alignment: .bottom) {
                 Color(nsColor: TidepadTheme.tabStripBackground)
@@ -45,6 +46,8 @@ struct WorkspaceView: View {
                 }
                 .font(.system(size: TidepadMetrics.tabFontSize))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .dropDestination(for: URL.self) { urls, _ in openDropped(urls) }
             }
             SearchResultsView(controller: windowDelegate.commandContext.search)
             if preferences.showStatusBar { StatusBarView(document: manager.selectedDocument) }
@@ -53,5 +56,17 @@ struct WorkspaceView: View {
         .background(Color(nsColor: TidepadTheme.editorBackground))
         .background(WindowDelegateBridge(delegate: windowDelegate))
         .onChange(of: manager.documents.map(\.id)) { _, ids in sessions.retainDocuments(Set(ids)) }
+        .navigationTitle(manager.selectedDocument?.displayName ?? "Tidepad")
+        .onChange(of: manager.selectedDocument?.fileURL, initial: true) { _, _ in windowDelegate.commandContext.syncWindowDocumentState() }
+        .onChange(of: manager.documents.contains { $0.hasUnsavedChanges }, initial: true) { _, _ in
+            windowDelegate.commandContext.syncWindowDocumentState()
+        }
+    }
+
+    private func openDropped(_ urls: [URL]) -> Bool {
+        let files = urls.filter(\.isFileURL)
+        guard !files.isEmpty else { return false }
+        manager.openInBackground(files)
+        return true
     }
 }

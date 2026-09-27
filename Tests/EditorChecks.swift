@@ -94,6 +94,7 @@ import AppKit
         precondition(limited.document.text == "let value = 42")
         checkSearchEditing()
         checkTextCommands()
+        try checkExternalChanges(output: output)
         try checkDocumentGroups(output: output)
         try checkScrolling(output: output)
         print("All native AppKit editor checks passed.")
@@ -158,6 +159,32 @@ import AppKit
         precondition(document.text == "b\na\nb\n" && !document.hasUnsavedChanges, "Each command is one undo step")
         window.contentView = nil
         print("PASS text commands apply as single named undo steps")
+    }
+
+    /// Another app's coordinated write is noticed through NSFilePresenter; Tidepad's own saves aren't.
+    /// (The app isn't active in this harness, so changes are queued rather than prompting.)
+    @MainActor static func checkExternalChanges(output: URL) throws {
+        let url = output.appendingPathComponent("external.txt")
+        try "one\n".write(to: url, atomically: false, encoding: .utf8)
+        let manager = DocumentManager()
+        manager.closeAll()
+        manager.open([url])
+        guard let document = manager.selectedDocument else { fatalError("Missing document") }
+        pump(0.5)
+        var error: NSError?
+        NSFileCoordinator().coordinate(writingItemAt: url, options: [], error: &error) { target in
+            try? "two\n".write(to: target, atomically: false, encoding: .utf8)
+        }
+        pump(1.5)
+        precondition(manager.pendingExternalChanges.contains(document.id), "A change by another app is noticed")
+        try manager.reloadFromDisk(document)
+        precondition(document.text == "two\n" && !document.hasUnsavedChanges && manager.pendingExternalChanges.isEmpty, "Reload")
+        document.text = "three\n"
+        precondition(manager.save(document))
+        pump(1.5)
+        precondition(manager.pendingExternalChanges.isEmpty, "Tidepad's own save isn't an external change")
+        manager.closeAll()
+        print("PASS external change detection, reload, own saves ignored")
     }
 
     @MainActor static func checkDocumentGroups(output: URL) throws {

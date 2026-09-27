@@ -3,6 +3,29 @@ import AppKit
 final class CodeTextView: NSTextView {
     var matchingBrackets: [NSRange] = []
     var appearanceChanged: (() -> Void)?
+    /// Opens files dropped on the editor, as Notepad++ does, instead of inserting their paths.
+    var openFiles: (([URL]) -> Void)?
+
+    private func droppedFiles(_ info: NSDraggingInfo) -> [URL] {
+        guard openFiles != nil else { return [] }
+        return info.draggingPasteboard.readObjects(forClasses: [NSURL.self],
+                                                   options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        droppedFiles(sender).isEmpty ? super.draggingEntered(sender) : .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        droppedFiles(sender).isEmpty ? super.draggingUpdated(sender) : .copy
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let files = droppedFiles(sender)
+        guard !files.isEmpty, let openFiles else { return super.performDragOperation(sender) }
+        openFiles(files)
+        return true
+    }
 
     func updateCaretDecorations() {
         let selection = selectedRange()
