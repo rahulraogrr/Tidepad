@@ -63,10 +63,23 @@ import AppKit
     func menuDidClose(_ menu: NSMenu) { original?.menuDidClose?(menu) }
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) { original?.menu?(menu, willHighlight: item) }
 
+    /// Marks Tidepad's own full-screen item.
+    private static let fullScreenTag = 0x46_53
+
     func ensureFullScreen(in menu: NSMenu) {
-        guard !menu.items.contains(where: { $0.action == #selector(NSWindow.toggleFullScreen(_:)) }) else { return }
+        let ours = menu.items.first { $0.tag == Self.fullScreenTag }
+        // Recent macOS versions add their own full-screen item (fn/🌐-F); then Tidepad's steps aside.
+        let system = menu.items.contains { item in
+            item.tag != Self.fullScreenTag && (item.action == #selector(NSWindow.toggleFullScreen(_:)) || item.title.hasSuffix("Full Screen"))
+        }
+        if system {
+            if let ours { menu.removeItem(ours) }
+            return
+        }
+        guard ours == nil else { return }
         let item = NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         item.keyEquivalentModifierMask = [.control, .command]
+        item.tag = Self.fullScreenTag
         item.target = nil
         if menu.items.last?.isSeparatorItem != true { menu.addItem(.separator()) }
         menu.addItem(item)

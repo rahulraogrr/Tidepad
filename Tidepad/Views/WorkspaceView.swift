@@ -6,10 +6,37 @@ struct WorkspaceView: View {
     let sessions: EditorSessionStore
     let preferences: EditorPreferences
 
+    private var project: ProjectFolder { windowDelegate.project }
+
     var body: some View {
         let _ = EditorDiagnostics.view("WorkspaceView")
         VStack(spacing: 0) {
             if preferences.showToolbar { EditorToolbar(manager: manager, sessions: sessions, find: { windowDelegate.commandContext.search.show(.find) }) }
+            // The project sidebar and the editor, with a native draggable divider between them.
+            HSplitView {
+                if project.showSidebar {
+                    ProjectSidebarView(project: project, manager: manager)
+                        .frame(minWidth: TidepadMetrics.sidebarMinimumWidth, idealWidth: TidepadMetrics.sidebarIdealWidth,
+                               maxWidth: TidepadMetrics.sidebarMaximumWidth)
+                }
+                editorColumn
+                    .frame(minWidth: TidepadMetrics.editorMinimumWidth, maxWidth: .infinity, maxHeight: .infinity)
+            }
+            if preferences.showStatusBar { StatusBarView(document: manager.selectedDocument) }
+        }
+        .frame(minWidth: TidepadMetrics.minimumWindowWidth, minHeight: TidepadMetrics.minimumWindowHeight)
+        .background(Color(nsColor: TidepadTheme.editorBackground))
+        .background(WindowDelegateBridge(delegate: windowDelegate))
+        .onChange(of: manager.documents.map(\.id)) { _, ids in sessions.retainDocuments(Set(ids)) }
+        .navigationTitle(manager.selectedDocument?.displayName ?? (project.url == nil ? "Tidepad" : project.name))
+        .onChange(of: manager.selectedDocument?.fileURL, initial: true) { _, _ in windowDelegate.commandContext.syncWindowDocumentState() }
+        .onChange(of: manager.documents.contains { $0.hasUnsavedChanges }, initial: true) { _, _ in
+            windowDelegate.commandContext.syncWindowDocumentState()
+        }
+    }
+
+    private var editorColumn: some View {
+        VStack(spacing: 0) {
             HStack(spacing: 0) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 0) {
@@ -42,6 +69,7 @@ struct WorkspaceView: View {
                     HStack(spacing: TidepadMetrics.tabHorizontalPadding) {
                         Button("New document", action: manager.newDocument)
                         Button("Open file…", action: manager.open)
+                        Button("Open folder…", action: project.chooseAndOpen)
                     }.buttonStyle(CompactChromeButtonStyle())
                 }
                 .font(.system(size: TidepadMetrics.tabFontSize))
@@ -50,23 +78,14 @@ struct WorkspaceView: View {
                 .dropDestination(for: URL.self) { urls, _ in openDropped(urls) }
             }
             SearchResultsView(controller: windowDelegate.commandContext.search)
-            if preferences.showStatusBar { StatusBarView(document: manager.selectedDocument) }
-        }
-        .frame(minWidth: TidepadMetrics.minimumWindowWidth, minHeight: TidepadMetrics.minimumWindowHeight)
-        .background(Color(nsColor: TidepadTheme.editorBackground))
-        .background(WindowDelegateBridge(delegate: windowDelegate))
-        .onChange(of: manager.documents.map(\.id)) { _, ids in sessions.retainDocuments(Set(ids)) }
-        .navigationTitle(manager.selectedDocument?.displayName ?? "Tidepad")
-        .onChange(of: manager.selectedDocument?.fileURL, initial: true) { _, _ in windowDelegate.commandContext.syncWindowDocumentState() }
-        .onChange(of: manager.documents.contains { $0.hasUnsavedChanges }, initial: true) { _, _ in
-            windowDelegate.commandContext.syncWindowDocumentState()
         }
     }
 
+    /// Dropped folders open as the project; dropped files open in tabs.
     private func openDropped(_ urls: [URL]) -> Bool {
-        let files = urls.filter(\.isFileURL)
-        guard !files.isEmpty else { return false }
-        manager.openInBackground(files)
+        let items = urls.filter(\.isFileURL)
+        guard !items.isEmpty else { return false }
+        windowDelegate.open(items)
         return true
     }
 }

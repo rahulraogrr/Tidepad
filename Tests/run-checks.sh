@@ -10,7 +10,9 @@ xcrun swiftc "${flags[@]}" Tidepad/Models/EditorDocument.swift Tidepad/Documents
 build/SyntaxChecks
 xcrun swiftc "${flags[@]}" Tidepad/Editor/TextCommands.swift Tidepad/Editor/SQLFormatter.swift Tests/TextCommandChecks.swift -o build/TextCommandChecks
 build/TextCommandChecks
+xcrun swiftc "${flags[@]}" Tidepad/Project/FolderListing.swift Tests/FolderChecks.swift -o build/FolderChecks
+build/FolderChecks
 xcrun swiftc -O "${flags[@]}" Tidepad/Storage/MappedUTF8Text.swift Tidepad/Storage/PieceTable.swift Tidepad/Storage/PieceTableString.swift Tests/StorageChecks.swift -o build/StorageChecks
 build/StorageChecks
-xcrun swiftc "${flags[@]}" Tidepad/Models/*.swift Tidepad/Documents/*.swift Tidepad/Editor/*.swift Tidepad/Syntax/*.swift Tidepad/Utilities/*.swift Tests/EditorChecks.swift -o build/EditorChecks
+xcrun swiftc "${flags[@]}" Tidepad/Models/*.swift Tidepad/Documents/*.swift Tidepad/Editor/*.swift Tidepad/Syntax/*.swift Tidepad/Utilities/*.swift Tidepad/Project/*.swift Tests/EditorChecks.swift -o build/EditorChecks
 build/EditorChecks

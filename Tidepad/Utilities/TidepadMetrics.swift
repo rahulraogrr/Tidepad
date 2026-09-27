@@ -34,5 +34,9 @@ enum TidepadMetrics {
     static let gutterPadding: CGFloat = 6
     static let gutterLeadingPadding: CGFloat = 6
     static let minimumWindowWidth: CGFloat = 800
+    static let sidebarMinimumWidth: CGFloat = 160
+    static let sidebarIdealWidth: CGFloat = 240
+    static let sidebarMaximumWidth: CGFloat = 520
+    static let editorMinimumWidth: CGFloat = 400
     static let minimumWindowHeight: CGFloat = 500
 }

@@ -49,6 +49,57 @@ import AppKit
         print("PASS JSON key/value colours, links (URL, email, underline, after edits), colouring a 3 MB file")
     }
 
+    /// The project sidebar: opening a folder, the tree, ignored items, revealing the open file and
+    /// files created outside Tidepad appearing on their own.
+    @MainActor static func checkProjectSidebar(output: URL) throws {
+        let fm = FileManager.default
+        let root = output.appendingPathComponent("project")
+        try? fm.removeItem(at: root)
+        for folder in ["src/main/java/app", "target/classes", ".git"] {
+            try fm.createDirectory(at: root.appendingPathComponent(folder), withIntermediateDirectories: true)
+        }
+        for file in ["pom.xml", "README.md", "src/main/java/app/App.java", "debug.log"] {
+            try Data("x".utf8).write(to: root.appendingPathComponent(file))
+        }
+        try "*.log\n".write(to: root.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+        let suite = "TidepadEditorChecks"
+        guard let defaults = UserDefaults(suiteName: suite) else { fatalError("Missing defaults") }
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let project = ProjectFolder(defaults: defaults)
+        var opened: [URL] = []
+        let tree = FileTreeController(project: project, openFile: { opened.append($0) })
+        let outline = tree.outlineView
+        func names() -> [String] { (0..<outline.numberOfRows).compactMap { (outline.item(atRow: $0) as? FileNode)?.name } }
+        project.open(root)
+        tree.update(selectedFile: nil)
+        precondition(names() == ["src", ".gitignore", "pom.xml", "README.md"], "Top level hides .git, target and ignored files: \(names())")
+        // The file being edited is revealed: its folders expand and it's selected, without opening anything.
+        let app = root.appendingPathComponent("src/main/java/app/App.java")
+        tree.update(selectedFile: app)
+        precondition((outline.item(atRow: outline.selectedRow) as? FileNode)?.name == "App.java", "The open file is selected")
+        precondition(names().starts(with: ["src", "main", "java", "app", "App.java"]), "Its folders expand: \(names())")
+        precondition(opened.isEmpty)
+        project.showIgnored = true
+        tree.update(selectedFile: app)
+        precondition(names().contains(".git") && names().contains("target") && names().contains("debug.log"), "Show ignored files: \(names())")
+        project.showIgnored = false
+        tree.update(selectedFile: app)
+        // Files created by other programs appear without a refresh (FSEvents).
+        try Data().write(to: root.appendingPathComponent("NOTES.md"))
+        try Data().write(to: root.appendingPathComponent("src/main/java/app/Service.java"))
+        let deadline = Date().addingTimeInterval(5)
+        while !(names().contains("NOTES.md") && names().contains("Service.java")) && Date() < deadline { pump(0.1) }
+        precondition(names().contains("NOTES.md") && names().contains("Service.java"), "New files appear: \(names())")
+        precondition(names().starts(with: ["src", "main", "java", "app"]), "Expanded folders stay expanded: \(names())")
+        // Recent folders are remembered.
+        precondition(ProjectFolder(defaults: defaults).recentFolders.first?.path == root.resolvingSymlinksInPath().path, "Recent folders")
+        project.close()
+        tree.update(selectedFile: nil)
+        precondition(outline.numberOfRows == 0, "Closing the folder empties the tree")
+        print("PASS project sidebar: folder tree, ignored files, revealing the open file, live updates, recent folders")
+    }
+
     @MainActor static func main() throws {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
@@ -141,6 +192,7 @@ import AppKit
         try checkExternalChanges(output: output)
         try checkDocumentGroups(output: output)
         try checkScrolling(output: output)
+        try checkProjectSidebar(output: output)
         print("All native AppKit editor checks passed.")
     }
     @MainActor static func checkSearchEditing() {

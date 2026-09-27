@@ -8,12 +8,15 @@ import Observation
     let documents: DocumentManager
     let sessions: EditorSessionStore
     let preferences: EditorPreferences
+    /// The folder open in the sidebar, if any.
+    let project: ProjectFolder
     @ObservationIgnored private var fontController: EditorFontPanelController?
 
-    init(documents: DocumentManager, sessions: EditorSessionStore, preferences: EditorPreferences) {
+    init(documents: DocumentManager, sessions: EditorSessionStore, preferences: EditorPreferences, project: ProjectFolder) {
         self.documents = documents
         self.sessions = sessions
         self.preferences = preferences
+        self.project = project
     }
 
     var document: EditorDocument? { documents.selectedDocument }

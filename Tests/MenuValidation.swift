@@ -94,7 +94,8 @@ import AppKit
                 await settle()
                 auditSystemCommands()
                 if let entry = allItems().first(where: { $0.action == #selector(NSWindow.toggleFullScreen(_:)) }) {
-                    check(entry.target == nil && entry.keyEquivalent == "f" && entry.keyEquivalentModifierMask == [.control, .command], "Native Full Screen target and shortcut")
+                    // Tidepad's item uses ⌃⌘F; recent macOS versions supply their own (fn/🌐-F) instead.
+                    check(entry.target == nil && entry.keyEquivalent.lowercased() == "f", "Native Full Screen target and shortcut")
                     check(NSApp.sendAction(#selector(NSWindow.toggleFullScreen(_:)), to: nil, from: entry), "Native Full Screen action routed")
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
                     check(window.styleMask.contains(.fullScreen), "Native Full Screen enters full screen")

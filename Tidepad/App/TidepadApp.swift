@@ -17,10 +17,16 @@ import AppKit
     let manager = DocumentManager()
     let sessions = EditorSessionStore()
     let preferences = EditorPreferences()
-    lazy var commandContext = WorkspaceCommandContext(documents: manager, sessions: sessions, preferences: preferences)
+    let project = ProjectFolder()
+    lazy var commandContext = WorkspaceCommandContext(documents: manager, sessions: sessions, preferences: preferences, project: project)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        sessions.openFiles = { [weak self] urls in self?.manager.openInBackground(urls) }
+        sessions.openFiles = { [weak self] urls in self?.open(urls) }
+        // Find in Files searches the open folder.
+        project.didOpen = { [weak self] folder in self?.commandContext.search.directory = folder.path }
+        // Reopen the last folder, unless Tidepad was launched to open one.
+        if project.url == nil { project.restoreLastFolder() }
+        if let folder = project.url { commandContext.search.directory = folder.path }
         DispatchQueue.main.async { NativeMenuCoordinator.arrange() }
     }
     func windowDidBecomeKey(_ notification: Notification) {
@@ -40,7 +46,15 @@ import AppKit
         DispatchQueue.main.async { NSApp.terminate(nil) }
         return true
     }
-    func application(_ application: NSApplication, open urls: [URL]) { manager.openInBackground(urls) }
+    func application(_ application: NSApplication, open urls: [URL]) { open(urls) }
+
+    /// Folders open as the project (the first one, if several); files open in tabs.
+    func open(_ urls: [URL]) {
+        let folders = urls.filter(ProjectFolder.isFolder)
+        let files = urls.filter { !ProjectFolder.isFolder($0) }
+        if let folder = folders.first { project.open(folder) }
+        if !files.isEmpty { manager.openInBackground(files) }
+    }
 }
 
 struct WindowDelegateBridge: NSViewRepresentable {

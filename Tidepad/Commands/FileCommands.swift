@@ -6,6 +6,7 @@ struct FileCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("New", action: context.documents.newDocument).keyboardShortcut("n")
             Button("Open…", action: context.documents.open).keyboardShortcut("o")
+            Button("Open Folder…", action: context.project.chooseAndOpen).keyboardShortcut("o", modifiers: [.command, .shift])
         }
         CommandGroup(replacing: .saveItem) { FileMenuItems(context: context) }
     }
@@ -24,6 +25,7 @@ private struct FileMenuItems: View {
             Button("Close All") { context.documents.closeAll() }.disabled(context.documents.documents.isEmpty)
             Button("Close Other Tabs") { context.documents.closeAll(except: context.document?.id) }
                 .disabled(context.documents.documents.count < 2 || !context.hasDocument)
+            Button("Close Folder", action: context.project.close).disabled(context.project.url == nil)
             Divider()
             Menu("Recent Files") {
                 ForEach(context.documents.recentFiles, id: \.self) { url in
@@ -32,6 +34,14 @@ private struct FileMenuItems: View {
                 Divider()
                 Button("Clear Recent Files", action: context.documents.clearRecentFiles)
                     .disabled(context.documents.recentFiles.isEmpty)
+            }
+            Menu("Recent Folders") {
+                ForEach(context.project.recentFolders, id: \.self) { url in
+                    Button(url.lastPathComponent) { context.project.open(url) }.help(url.path)
+                }
+                Divider()
+                Button("Clear Recent Folders", action: context.project.clearRecentFolders)
+                    .disabled(context.project.recentFolders.isEmpty)
             }
         }
     }
