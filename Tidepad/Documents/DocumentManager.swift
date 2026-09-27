@@ -121,10 +121,13 @@ import Observation
             show(error)
             return false
         }
+        let moved = document.fileURL?.standardizedFileURL != destination.standardizedFileURL
         document.markSaved(at: destination)
         document.diskStamp = FileStamp(destination)
         pendingExternalChanges.remove(document.id)
-        watch(document)
+        // Keep the same presenter for a normal save: a new one could receive this save's own change
+        // notification, which is delivered after the coordinated write finishes.
+        if moved || presenters[document.id] == nil { watch(document) }
         noteRecent(destination)
         return true
     }
@@ -209,6 +212,10 @@ import Observation
     }
 
     private func noteExternalChange(_ id: UUID) {
+        // A notification for Tidepad's own write (same date and size as last saved) isn't a change.
+        // A deleted file has no stamp, so it always gets through.
+        if let document = documents.first(where: { $0.id == id }), let url = document.fileURL,
+           !url.pathComponents.contains(".Trash"), FileStamp(url) == document.diskStamp { return }
         pendingExternalChanges.insert(id)
         if NSApp?.isActive == true { reviewExternalChanges() }
     }
