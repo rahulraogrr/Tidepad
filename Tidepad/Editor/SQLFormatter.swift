@@ -29,6 +29,16 @@ struct SQLFormatter {
     struct Token: Equatable {
         let kind: Kind
         var value: String
+        /// Length in UTF-8 bytes (the inline-block rule's measure; equal to sql-formatter's UTF-16 length
+        /// for ASCII). Whitespace tokens keep only
+        /// their length; their text is never used, so it isn't copied.
+        var length: Int
+
+        init(kind: Kind, value: String, length: Int? = nil) {
+            self.kind = kind
+            self.value = value
+            self.length = length ?? value.utf8.count
+        }
     }
 
     // MARK: Word lists (from sql-formatter-plus StandardSqlFormatter)
@@ -94,33 +104,60 @@ struct SQLFormatter {
         character.isLetter || character.isNumber || character == "_"
     }
 
+    // The tokenizer works on UTF-8 bytes, Swift's native string storage: SQL syntax is ASCII, and any
+    // non-ASCII byte belongs to a word (identifiers, or text inside strings and comments). Scanning bytes
+    // avoids per-Character grapheme segmentation, and making each token's String is a plain copy.
+    private static func unit(_ scalar: Unicode.Scalar) -> UInt8 { UInt8(scalar.value) }
+    private static func isWhitespace(_ u: UInt8) -> Bool { u == 0x20 || (0x09...0x0D).contains(u) }
+    private static func isNewline(_ u: UInt8) -> Bool { (0x0A...0x0D).contains(u) }
+    private static func isDigit(_ u: UInt8) -> Bool { u >= 0x30 && u <= 0x39 }
+    private static func isHexDigit(_ u: UInt8) -> Bool { isDigit(u) || (u >= 0x41 && u <= 0x46) || (u >= 0x61 && u <= 0x66) }
+    static func isWordUnit(_ u: UInt8) -> Bool {
+        (u >= 0x61 && u <= 0x7A) || (u >= 0x41 && u <= 0x5A) || isDigit(u) || u == 0x5F || u >= 0x80
+    }
+
     static func tokenize(_ text: String) -> [Token] {
-        let c = Array(text)
+        let c = Array(text.utf8)
         var tokens: [Token] = []
+        tokens.reserveCapacity(c.count / 3)
         var i = 0
-        func next(_ offset: Int = 1) -> Character? { i + offset < c.count ? c[i + offset] : nil }
-        func emit(_ kind: Kind, from start: Int) { tokens.append(Token(kind: kind, value: String(c[start..<i]))) }
+        var lastSignificantIsDot = false
+        func next(_ offset: Int = 1) -> UInt8? { i + offset < c.count ? c[i + offset] : nil }
+        func emit(_ kind: Kind, from start: Int) {
+            if kind == .whitespace {
+                tokens.append(Token(kind: kind, value: " ", length: i - start))
+                return
+            }
+            let value = String(decoding: c[start..<i], as: UTF8.self)
+            lastSignificantIsDot = value == "."
+            tokens.append(Token(kind: kind, value: value, length: i - start))
+        }
+        let hash = unit("#"), dash = unit("-"), slash = unit("/"), star = unit("*"), single = unit("'"),
+            double = unit("\""), backslash = unit("\\"), backtick = unit("`"), openBracket = unit("["),
+            closeBracket = unit("]"), open = unit("("), close = unit(")"), question = unit("?"), at = unit("@"),
+            colon = unit(":"), dot = unit("."), plus = unit("+"), zero = unit("0"), nUpper = unit("N"),
+            nLower = unit("n"), xUpper = unit("X"), xLower = unit("x"), eUpper = unit("E"), eLower = unit("e")
 
         while i < c.count {
             let start = i, ch = c[i]
-            if ch.isWhitespace {
-                while i < c.count && c[i].isWhitespace { i += 1 }
+            if isWhitespace(ch) {
+                while i < c.count && isWhitespace(c[i]) { i += 1 }
                 emit(.whitespace, from: start)
-            } else if ch == "#" || (ch == "-" && next() == "-") {
-                while i < c.count && !c[i].isNewline { i += 1 }
+            } else if ch == hash || (ch == dash && next() == dash) {
+                while i < c.count && !isNewline(c[i]) { i += 1 }
                 if i < c.count { i += 1 } // The line break belongs to the comment.
                 emit(.lineComment, from: start)
-            } else if ch == "/" && next() == "*" {
+            } else if ch == slash && next() == star {
                 i += 2
-                while i < c.count && !(c[i] == "*" && next() == "/") { i += 1 }
+                while i < c.count && !(c[i] == star && next() == slash) { i += 1 }
                 i = min(c.count, i + 2)
                 emit(.blockComment, from: start)
-            } else if ch == "'" || ch == "\"" || ((ch == "N" || ch == "n") && next() == "'") {
-                if ch == "N" || ch == "n" { i += 1 }
+            } else if ch == single || ch == double || ((ch == nUpper || ch == nLower) && next() == single) {
+                if ch == nUpper || ch == nLower { i += 1 }
                 let quote = c[i]
                 i += 1
                 while i < c.count {
-                    if c[i] == "\\" { i += 2; continue }
+                    if c[i] == backslash { i += 2; continue }
                     if c[i] == quote {
                         if next() == quote { i += 2; continue } // Doubled quote escapes itself.
                         i += 1; break
@@ -129,60 +166,59 @@ struct SQLFormatter {
                 }
                 i = min(i, c.count)
                 emit(.string, from: start)
-            } else if ch == "`" {
+            } else if ch == backtick {
                 i += 1
                 while i < c.count {
-                    if c[i] == "`" { if next() == "`" { i += 2; continue }; i += 1; break }
+                    if c[i] == backtick { if next() == backtick { i += 2; continue }; i += 1; break }
                     i += 1
                 }
                 emit(.string, from: start)
-            } else if ch == "[" {
-                while i < c.count && c[i] != "]" { i += 1 }
+            } else if ch == openBracket {
+                while i < c.count && c[i] != closeBracket { i += 1 }
                 i = min(c.count, i + 1)
                 emit(.string, from: start)
-            } else if ch == "(" {
+            } else if ch == open {
                 i += 1; emit(.openParen, from: start)
-            } else if ch == ")" {
+            } else if ch == close {
                 i += 1; emit(.closeParen, from: start)
-            } else if ch == "?" {
+            } else if ch == question {
                 i += 1
-                while i < c.count && c[i].isASCII && c[i].isNumber { i += 1 }
+                while i < c.count && isDigit(c[i]) { i += 1 }
                 emit(.placeholder, from: start)
-            } else if (ch == "@" || ch == ":"), let following = next(), isWordCharacter(following) {
+            } else if (ch == at || ch == colon), let following = next(), isWordUnit(following) {
                 i += 1
-                while i < c.count && isWordCharacter(c[i]) { i += 1 }
+                while i < c.count && isWordUnit(c[i]) { i += 1 }
                 emit(.placeholder, from: start)
-            } else if ch.isASCII && ch.isNumber {
-                if ch == "0", let x = next(), x == "x" || x == "X" {
+            } else if isDigit(ch) {
+                if ch == zero, let x = next(), x == xUpper || x == xLower {
                     i += 2
-                    while i < c.count && c[i].isHexDigit { i += 1 }
+                    while i < c.count && isHexDigit(c[i]) { i += 1 }
                 } else {
-                    while i < c.count && c[i].isASCII && c[i].isNumber { i += 1 }
-                    if i < c.count && c[i] == ".", let d = next(), d.isASCII && d.isNumber {
+                    while i < c.count && isDigit(c[i]) { i += 1 }
+                    if i < c.count && c[i] == dot, let d = next(), isDigit(d) {
                         i += 1
-                        while i < c.count && c[i].isASCII && c[i].isNumber { i += 1 }
+                        while i < c.count && isDigit(c[i]) { i += 1 }
                     }
-                    if i < c.count && (c[i] == "e" || c[i] == "E") {
+                    if i < c.count && (c[i] == eUpper || c[i] == eLower) {
                         var j = i + 1
-                        if j < c.count && (c[j] == "+" || c[j] == "-") { j += 1 }
-                        if j < c.count && c[j].isASCII && c[j].isNumber {
+                        if j < c.count && (c[j] == plus || c[j] == dash) { j += 1 }
+                        if j < c.count && isDigit(c[j]) {
                             i = j
-                            while i < c.count && c[i].isASCII && c[i].isNumber { i += 1 }
+                            while i < c.count && isDigit(c[i]) { i += 1 }
                         }
                     }
                 }
                 emit(.number, from: start)
-            } else if isWordCharacter(ch) {
-                let afterDot = tokens.last(where: { $0.kind != .whitespace })?.value == "."
-                if !afterDot, let (kind, end) = reservedPhrase(in: c, at: i) {
+            } else if isWordUnit(ch) {
+                if !lastSignificantIsDot, let (kind, end) = reservedPhrase(in: c, at: i) {
                     i = end; emit(kind, from: start)
                 } else {
-                    while i < c.count && isWordCharacter(c[i]) { i += 1 }
+                    while i < c.count && isWordUnit(c[i]) { i += 1 }
                     emit(.word, from: start)
                 }
             } else {
-                let rest = String(c[i..<min(c.count, i + 3)])
-                let length = operators.first(where: { rest.hasPrefix($0) })?.count ?? 1
+                let rest = String(decoding: c[i..<min(c.count, i + 3)], as: UTF8.self)
+                let length = operators.first(where: { rest.hasPrefix($0) })?.utf8.count ?? 1
                 i += length
                 emit(.op, from: start)
             }
@@ -191,17 +227,23 @@ struct SQLFormatter {
     }
 
     /// The longest keyword phrase (up to three words, any whitespace between) starting at `start`.
-    private static func reservedPhrase(in c: [Character], at start: Int) -> (Kind, Int)? {
+    private static func reservedPhrase(in c: [UInt8], at start: Int) -> (Kind, Int)? {
+        var end = start
+        while end < c.count && isWordUnit(c[end]) { end += 1 }
+        guard end - start <= longestKeyword else { return nil }
+        let first = String(decoding: c[start..<end], as: UTF8.self).uppercased()
+        // Most words can't start a multi-word keyword: one lookup, no further words read.
+        guard multiWordStarts.contains(first) else { return phrases[first].map { ($0, end) } }
         var words: [(String, Int)] = []
         var i = start
         while words.count < 3 {
             let wordStart = i
-            while i < c.count && isWordCharacter(c[i]) { i += 1 }
-            guard i > wordStart else { break }
-            words.append((String(c[wordStart..<i]).uppercased(), i))
+            while i < c.count && isWordUnit(c[i]) { i += 1 }
+            guard i > wordStart, i - wordStart <= longestKeyword else { break }
+            words.append((String(decoding: c[wordStart..<i], as: UTF8.self).uppercased(), i))
             var j = i
-            while j < c.count && c[j].isWhitespace { j += 1 }
-            guard j > i, j < c.count, isWordCharacter(c[j]) else { break }
+            while j < c.count && isWhitespace(c[j]) { j += 1 }
+            guard j > i, j < c.count, isWordUnit(c[j]) else { break }
             i = j
         }
         for count in stride(from: words.count, through: 1, by: -1) {
@@ -211,6 +253,12 @@ struct SQLFormatter {
         return nil
     }
 
+    /// First words of multi-word keywords (GROUP BY, LEFT OUTER JOIN, ON UPDATE, ...).
+    private static let multiWordStarts = Set(phrases.keys.filter { $0.contains(" ") }.compactMap { $0.split(separator: " ").first.map(String.init) })
+
+    /// No keyword is longer than this, so longer words are identifiers without a table lookup.
+    private static let longestKeyword = phrases.keys.flatMap { $0.split(separator: " ") }.map(\.count).max() ?? 0
+
     // MARK: Formatter
 
     static func format(_ text: String, options: Options = Options()) -> String {
@@ -218,58 +266,80 @@ struct SQLFormatter {
         return formatter.run()
     }
 
+    /// Builds the output in a UTF-8 byte buffer: appends and "does it end with a space/newline?"
+    /// checks are then O(1) byte operations rather than String/Character work.
     private struct Layout {
         let tokens: [Token]
         let options: Options
-        var output = ""
+        var output: [UInt8] = []
         var indentTypes: [Bool] = [] // true = top-level indent, false = block (parenthesis) indent
         var inlineLevel = 0
-        var previousReserved: Token?
+        var previousReservedIsLimit = false
         var index = 0
+        let indentBytes: [UInt8]
 
-        init(tokens: [Token], options: Options) { self.tokens = tokens; self.options = options }
+        init(tokens: [Token], options: Options) {
+            self.tokens = tokens
+            self.options = options
+            indentBytes = Array(options.indent.utf8)
+            output.reserveCapacity(tokens.reduce(0) { $0 + $1.length } * 3 / 2)
+        }
+
+        mutating func append(_ text: String) { output.append(contentsOf: text.utf8) }
+        mutating func append(_ byte: UInt8) { output.append(byte) }
+
+        mutating func noteReserved(_ token: Token) {
+            previousReservedIsLimit = token.value.utf8.count == 5 && token.value.uppercased() == "LIMIT"
+        }
 
         mutating func run() -> String {
-            for (position, original) in tokens.enumerated() {
+            for (position, token) in tokens.enumerated() {
                 index = position
-                let token = original
                 switch token.kind {
                 case .whitespace: break // Whitespace is re-created below.
-                case .lineComment: output += token.value; addNewline()
+                case .lineComment: append(token.value); addNewline()
                 case .blockComment:
-                    addNewline(); output += indentComment(token.value); addNewline()
+                    addNewline(); append(indentComment(token.value)); addNewline()
                 case .topLevel:
                     decreaseTopLevel(); addNewline(); indentTypes.append(true)
-                    output += keyword(token.value); addNewline(); previousReserved = token
+                    append(keyword(token.value)); addNewline(); noteReserved(token)
                 case .topLevelNoIndent:
-                    decreaseTopLevel(); addNewline(); output += keyword(token.value); addNewline(); previousReserved = token
+                    decreaseTopLevel(); addNewline(); append(keyword(token.value)); addNewline(); noteReserved(token)
                 case .newline:
-                    addNewline(); output += keyword(token.value) + " "; previousReserved = token
+                    addNewline(); append(keyword(token.value)); append(0x20); noteReserved(token)
                 case .reserved:
-                    output += keyword(token.value) + " "; previousReserved = token
+                    append(keyword(token.value)); append(0x20); noteReserved(token)
                 case .openParen: openParenthesis(token)
                 case .closeParen: closeParenthesis(token)
-                case .placeholder, .string, .number, .word: output += token.value + " "
+                case .placeholder, .string, .number, .word: append(token.value); append(0x20)
                 case .op:
                     switch token.value {
                     case ",":
-                        trimEnd(); output += ", "
-                        let inLimit = previousReserved?.value.uppercased() == "LIMIT"
-                        if inlineLevel == 0 && !inLimit { addNewline() }
-                    case ":": trimEnd(); output += ": "
-                    case ".": trimEnd(); output += "."
+                        trimEnd(); append(0x2C); append(0x20)
+                        if inlineLevel == 0 && !previousReservedIsLimit { addNewline() }
+                    case ":": trimEnd(); append(0x3A); append(0x20)
+                    case ".": trimEnd(); append(0x2E)
                     case ";":
                         indentTypes.removeAll()
-                        trimEnd(); output += ";" + String(repeating: "\n", count: max(1, options.linesBetweenQueries))
-                    default: output += token.value + " "
+                        trimEnd(); append(0x3B)
+                        for _ in 0..<max(1, options.linesBetweenQueries) { append(0x0A) }
+                    default: append(token.value); append(0x20)
                     }
                 }
             }
-            return output.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Trim leading and trailing whitespace on the bytes, then make the String once.
+            var first = 0, last = output.count
+            while first < last && Self.isSpaceOrNewline(output[first]) { first += 1 }
+            while last > first && Self.isSpaceOrNewline(output[last - 1]) { last -= 1 }
+            return String(decoding: output[first..<last], as: UTF8.self)
         }
 
+        static func isSpaceOrNewline(_ byte: UInt8) -> Bool { byte == 0x20 || (0x09...0x0D).contains(byte) }
+
         func keyword(_ value: String) -> String {
-            let collapsed = value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            // Multi-word keywords may contain runs of whitespace or newlines: collapse them to one space.
+            let collapsed = value.utf8.contains(where: Self.isSpaceOrNewline)
+                ? value.split(whereSeparator: \.isWhitespace).joined(separator: " ") : value
             return options.uppercase ? collapsed.uppercased() : collapsed
         }
 
@@ -288,8 +358,8 @@ struct SQLFormatter {
         mutating func openParenthesis(_ token: Token) {
             let previous = index > 0 ? tokens[index - 1].kind : .whitespace
             // Keep the space before "(" only if the original had one: `count(*)` but `in (1, 2)`.
-            if ![.whitespace, .openParen, .lineComment].contains(previous) { trimEnd() }
-            output += options.uppercase ? token.value.uppercased() : token.value
+            if previous != .whitespace && previous != .openParen && previous != .lineComment { trimEnd() }
+            append(options.uppercase ? token.value.uppercased() : token.value)
             if inlineLevel > 0 { inlineLevel += 1 }
             else if isInlineBlock(from: index) { inlineLevel = 1 }
             if inlineLevel == 0 { indentTypes.append(false); addNewline() }
@@ -299,21 +369,26 @@ struct SQLFormatter {
             let value = options.uppercase ? token.value.uppercased() : token.value
             if inlineLevel > 0 {
                 inlineLevel -= 1
-                trimEnd(); output += value + " "
+                trimEnd(); append(value); append(0x20)
             } else {
                 while let type = indentTypes.popLast(), type {} // Drop top-level indents inside the block too.
-                addNewline(); output += value + " "
+                addNewline(); append(value); append(0x20)
             }
         }
 
         func isInlineBlock(from start: Int) -> Bool {
             var length = 0, level = 0
             for token in tokens[start...] {
-                length += token.value.count
+                length += token.length
                 if length > inlineMaxLength { return false }
-                if token.kind == .openParen { level += 1 }
-                else if token.kind == .closeParen { level -= 1; if level == 0 { return true } }
-                if [.topLevel, .newline, .lineComment, .blockComment].contains(token.kind) || token.value == ";" { return false }
+                switch token.kind {
+                case .openParen: level += 1
+                case .closeParen:
+                    level -= 1
+                    if level == 0 { return true }
+                case .topLevel, .newline, .lineComment, .blockComment: return false
+                default: if token.value == ";" { return false }
+                }
             }
             return false
         }
@@ -321,13 +396,13 @@ struct SQLFormatter {
         mutating func decreaseTopLevel() { if indentTypes.last == true { indentTypes.removeLast() } }
 
         mutating func trimEnd() {
-            while let last = output.last, last == " " || last == "\t" { output.removeLast() }
+            while let last = output.last, last == 0x20 || last == 0x09 { output.removeLast() }
         }
 
         mutating func addNewline() {
             trimEnd()
-            if output.last != "\n" { output += "\n" }
-            output += String(repeating: options.indent, count: indentTypes.count)
+            if output.last != 0x0A { output.append(0x0A) }
+            for _ in 0..<indentTypes.count { output.append(contentsOf: indentBytes) }
         }
     }
 }

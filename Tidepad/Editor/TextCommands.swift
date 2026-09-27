@@ -14,7 +14,7 @@ protocol TextSource {
 extension NSString: TextSource {}
 
 /// One replacement produced by a text command, applied by the editor as a single undoable edit.
-struct TextEdit: Equatable {
+struct TextEdit: Equatable, Sendable {
     let range: NSRange
     let text: String
     let selection: NSRange
@@ -206,47 +206,51 @@ enum TextCommands {
         return formatted(scope, original: original, text: text, actionName: "Format JSON")
     }
 
+    /// One pass over the UTF-8 bytes into a byte buffer. JSON's structure is all ASCII, so string
+    /// contents (any UTF-8) are copied byte for byte; output grows by amortised appends only.
     static func prettyJSON(_ text: String, indent: String, lineEnding: String) -> String {
-        let scalars = Array(text.unicodeScalars)
-        var output = String.UnicodeScalarView()
+        let input = Array(text.utf8)
+        var output: [UInt8] = []
+        output.reserveCapacity(input.count + input.count / 2)
+        let indentBytes = Array(indent.utf8), newline = Array(lineEnding.utf8)
         var depth = 0, inString = false, escaped = false, index = 0
-        func isSpace(_ scalar: Unicode.Scalar) -> Bool { scalar == " " || scalar == "\t" || scalar == "\n" || scalar == "\r" }
+        @inline(__always) func isSpace(_ byte: UInt8) -> Bool { byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D }
         func breakLine() {
-            output.append(contentsOf: lineEnding.unicodeScalars)
-            for _ in 0..<depth { output.append(contentsOf: indent.unicodeScalars) }
+            output.append(contentsOf: newline)
+            for _ in 0..<depth { output.append(contentsOf: indentBytes) }
         }
-        while index < scalars.count {
-            let scalar = scalars[index]
+        while index < input.count {
+            let byte = input[index]
             index += 1
             if inString {
-                output.append(scalar)
-                if escaped { escaped = false } else if scalar == "\\" { escaped = true } else if scalar == "\"" { inString = false }
+                output.append(byte)
+                if escaped { escaped = false } else if byte == 0x5C { escaped = true } else if byte == 0x22 { inString = false }
                 continue
             }
-            switch scalar {
-            case "\"":
-                inString = true; output.append(scalar)
-            case "{", "[":
-                let close: Unicode.Scalar = scalar == "{" ? "}" : "]"
+            switch byte {
+            case 0x22: // "
+                inString = true; output.append(byte)
+            case 0x7B, 0x5B: // { [
+                let close: UInt8 = byte == 0x7B ? 0x7D : 0x5D
                 var next = index
-                while next < scalars.count && isSpace(scalars[next]) { next += 1 }
-                output.append(scalar)
-                if next < scalars.count && scalars[next] == close {
+                while next < input.count && isSpace(input[next]) { next += 1 }
+                output.append(byte)
+                if next < input.count && input[next] == close {
                     output.append(close); index = next + 1 // Keep {} and [] compact.
                 } else {
                     depth += 1; breakLine()
                 }
-            case "}", "]":
-                depth = max(0, depth - 1); breakLine(); output.append(scalar)
-            case ",":
-                output.append(scalar); breakLine()
-            case ":":
-                output.append(scalar); output.append(" ")
+            case 0x7D, 0x5D: // } ]
+                depth = max(0, depth - 1); breakLine(); output.append(byte)
+            case 0x2C: // ,
+                output.append(byte); breakLine()
+            case 0x3A: // :
+                output.append(byte); output.append(0x20)
             default:
-                if !isSpace(scalar) { output.append(scalar) }
+                if !isSpace(byte) { output.append(byte) }
             }
         }
-        return String(output)
+        return String(decoding: output, as: UTF8.self)
     }
 
     /// Re-indents well-formed XML. Comments, CDATA and element order are kept; an XML declaration
