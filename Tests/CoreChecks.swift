@@ -87,6 +87,18 @@ import Foundation
                 precondition(loaded.text == expected && loaded.encoding == expectedEncoding, "Preserve native BOM-less encoding detection")
             }
         }
+        // BOM-less Windows-1252 text that isn't valid UTF-8 must open, and save back byte for byte.
+        let western = directory.appendingPathComponent("western.txt")
+        let westernBytes = Data([0x63, 0x61, 0x66, 0xE9, 0x20, 0x93, 0x71, 0x94, 0x0D, 0x0A]) // café “q”\r\n
+        try westernBytes.write(to: western)
+        var detected = String.Encoding.utf8
+        if (try? String(contentsOf: western, usedEncoding: &detected)) == nil {
+            let loaded = try service.read(western)
+            precondition(loaded.encoding == .windowsCP1252 && loaded.text == "caf\u{E9} \u{201C}q\u{201D}\r\n", "Windows-1252 fallback")
+            try service.write(loaded, to: western)
+            let roundTrip = try Data(contentsOf: western)
+            precondition(roundTrip == westernBytes, "Windows-1252 must round-trip")
+        }
         let overridden = EditorDocument(fileURL: URL(fileURLWithPath: "/sample.swift"))
         precondition(overridden.syntaxLanguage == .swift)
         overridden.languageOverride = .json

@@ -38,8 +38,16 @@ struct TextFileService {
         let text: String
         if let decoded { text = decoded }
         else {
-            // Retain Foundation's existing encoding detection for non-UTF-8 legacy text.
-            text = try String(contentsOf: url, usedEncoding: &encoding)
+            do {
+                // Retain Foundation's existing encoding detection for non-UTF-8 legacy text.
+                text = try String(contentsOf: url, usedEncoding: &encoding)
+            } catch where signature == nil && !ambiguous {
+                // BOM-less 8-bit text that isn't UTF-8 (typically Windows files). Foundation usually can't
+                // detect it, so fall back like Notepad++ does: Windows-1252, then Latin-1, which accepts any byte.
+                if let western = String(data: data, encoding: .windowsCP1252) { encoding = .windowsCP1252; text = western }
+                else if let latin = String(data: data, encoding: .isoLatin1) { encoding = .isoLatin1; text = latin }
+                else { throw error }
+            }
         }
         return LoadedText(url: url, text: text, encoding: encoding, hasBOM: signature != nil,
                           lines: LineIndex.Prepared(text))
