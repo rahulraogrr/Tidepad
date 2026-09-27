@@ -146,6 +146,9 @@ import AppKit
         precondition(manager.documents.count == 1 && manager.selectedID == selected)
         manager.closeAll()
         precondition(manager.documents.isEmpty && manager.selectedID == nil)
+        manager.newDocument()
+        manager.saveAll() // A blank Untitled tab has nothing to save and must not open a Save panel.
+        precondition(manager.documents.count == 1 && manager.selectedDocument?.fileURL == nil)
         print("PASS Save All, Close Other Tabs, and Close All")
     }
 

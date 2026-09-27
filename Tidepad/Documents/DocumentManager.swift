@@ -105,11 +105,13 @@ import Observation
 
     func saveAll() {
         let original = selectedID
-        for document in documents where document.hasUnsavedChanges || document.fileURL == nil {
+        // Return to the tab the user was on, even if a Save panel is cancelled part-way.
+        defer { selectedID = original }
+        // Blank Untitled tabs have nothing to save, so they don't get a Save panel.
+        for document in documents where document.hasUnsavedChanges {
             selectedID = document.id
             guard save(document) else { return }
         }
-        selectedID = original
     }
 
     func closeAll(except retainedID: UUID? = nil) {
