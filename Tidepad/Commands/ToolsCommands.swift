@@ -14,10 +14,11 @@ private struct ToolsMenuItems: View {
     let context: WorkspaceCommandContext
     var body: some View {
         Group {
-            Button("Format JSON") { context.run(.formatJSON) }
-            Button("Format XML") { context.run(.formatXML) }
-            Button("Format SQL") { context.run(.formatSQL) }
-            Divider()
+            Menu("Format") {
+                Button("JSON") { context.run(.formatJSON) }
+                Button("XML") { context.run(.formatXML) }
+                Button("SQL") { context.run(.formatSQL) }
+            }
             Menu("Convert Case") {
                 Button("UPPERCASE") { context.run(.convertCase(.upper)) }
                 Button("lowercase") { context.run(.convertCase(.lower)) }
