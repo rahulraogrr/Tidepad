@@ -4,7 +4,7 @@ import Darwin
 /// Large-file prototype: opens a big UTF-8 file in a plain NSTextView backed by
 /// PieceTableTextStorage and measures what matters for editing 300–500 MB files.
 ///
-///   Tests/run-large-file-prototype.sh [--mb 500] [--file path] [--textkit2] [--standard] [--skip-end] [--stay]
+///   Tests/run-large-file-prototype.sh [--mb 500] [--file path] [--textkit2] [--standard] [--relocate] [--skip-end] [--skip-undo] [--stay]
 ///
 /// --standard uses Apple's default NSTextStorage with the whole file as one string (today's
 /// approach) for comparison. --stay keeps the window open afterwards to scroll and type by hand.
@@ -42,6 +42,21 @@ import Darwin
         let line = String(format: "%-46@ %9.1f ms   RSS %5d MB", label as NSString, Date().timeIntervalSince(start) * 1000, residentMB())
         print(line); results.append(line)
         return value
+    }
+
+    /// Moves the view to a UTF-16 offset. With --relocate (TextKit 2) it uses the viewport
+    /// controller's relocateViewport(to:), which lays out only the destination screen, instead of
+    /// NSTextView's scrollRangeToVisible, which may lay out everything in between.
+    @MainActor static func jump(_ textView: NSTextView, to offset: Int) {
+        if arguments.contains("--relocate"), let layout = textView.textLayoutManager,
+           let content = layout.textContentManager,
+           let location = content.location(layout.documentRange.location, offsetBy: offset) {
+            let y = layout.textViewportLayoutController.relocateViewport(to: location)
+            textView.scroll(NSPoint(x: 0, y: y))
+            layout.textViewportLayoutController.layoutViewport()
+        } else {
+            textView.scrollRangeToVisible(NSRange(location: offset, length: 0))
+        }
     }
 
     static func generate(_ url: URL, megabytes: Int) throws {
@@ -123,28 +138,46 @@ import Darwin
         }
         let length = storage.length
         print("UTF-16 length: \(length)")
-        measure("scroll to middle", window) { textView.scrollRangeToVisible(NSRange(location: length / 2, length: 0)) }
+        let relocate = arguments.contains("--relocate")
+        let jumpLabel = relocate ? "relocate viewport" : "scroll"
+        measure("\(jumpLabel) to middle", window) { jump(textView, to: length / 2) }
         if arguments.contains("--skip-end") {
-            print("(skipping scroll to end)")
+            print("(skipping jump to end)")
         } else {
-            measure("scroll to end", window) { textView.scrollRangeToVisible(NSRange(location: length, length: 0)) }
+            measure("\(jumpLabel) to end", window) { jump(textView, to: length) }
         }
-        measure("scroll back to top", window) { textView.scrollRangeToVisible(NSRange(location: 0, length: 0)) }
+        measure("\(jumpLabel) back to top", window) { jump(textView, to: 0) }
 
         let middle = (storage.string as NSString).lineRange(for: NSRange(location: length / 2, length: 0)).location
-        textView.setSelectedRange(NSRange(location: middle, length: 0))
-        measure("go to middle + select", window) { textView.scrollRangeToVisible(textView.selectedRange()) }
+        measure("\(jumpLabel) to middle + place caret", window) {
+            jump(textView, to: middle)
+            textView.setSelectedRange(NSRange(location: middle, length: 0))
+        }
         measure("type 100 characters at the middle (1 by 1)", window) {
             for _ in 0..<100 { textView.insertText("x", replacementRange: textView.selectedRange()) }
         }
         measure("delete 50 characters (backspace)", window) {
             for _ in 0..<50 { textView.deleteBackward(nil) }
         }
+        let pasted = String(repeating: "pasted line of text\n", count: 52_429)
+        let pasteLocation = textView.selectedRange().location
         measure("paste 1 MB at the middle", window) {
-            textView.insertText(String(repeating: "pasted line of text\n", count: 52_429), replacementRange: textView.selectedRange())
+            textView.insertText(pasted, replacementRange: textView.selectedRange())
         }
-        measure("undo the paste", window) { textView.undoManager?.undo() }
-        measure("type 1 character at the very top", window) {
+        // The same change as undoing the paste, made directly on the storage: no NSTextView undo or
+        // scrolling. Tells whether a slow undo comes from NSTextView or from TextKit 2 itself.
+        let pastedRange = NSRange(location: pasteLocation, length: (pasted as NSString).length)
+        measure("delete the 1 MB directly in the storage", window) { storage.replaceCharacters(in: pastedRange, with: "") }
+        measure("re-insert the 1 MB directly in the storage", window) {
+            storage.replaceCharacters(in: NSRange(location: pasteLocation, length: 0), with: pasted)
+        }
+        if arguments.contains("--skip-undo") {
+            print("(skipping undo)")
+        } else {
+            measure("undo the paste (NSTextView)", window) { textView.undoManager?.undo() }
+        }
+        measure("\(jumpLabel) to top + type 1 character", window) {
+            jump(textView, to: 0)
             textView.setSelectedRange(NSRange(location: 0, length: 0))
             textView.insertText("y", replacementRange: NSRange(location: 0, length: 0))
         }
