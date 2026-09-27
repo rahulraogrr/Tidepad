@@ -8,5 +8,7 @@ xcrun swiftc "${flags[@]}" Tidepad/Models/EditorDocument.swift Tidepad/Documents
 build/CoreChecks
 xcrun swiftc "${flags[@]}" Tidepad/Syntax/SyntaxLanguage.swift Tidepad/Syntax/LineLexer.swift Tidepad/Syntax/IncrementalSyntaxEngine.swift Tidepad/Editor/BracketMatcher.swift Tests/SyntaxChecks.swift -o build/SyntaxChecks
 build/SyntaxChecks
+xcrun swiftc "${flags[@]}" Tidepad/Editor/TextCommands.swift Tests/TextCommandChecks.swift -o build/TextCommandChecks
+build/TextCommandChecks
 xcrun swiftc "${flags[@]}" Tidepad/Models/*.swift Tidepad/Documents/*.swift Tidepad/Editor/*.swift Tidepad/Syntax/*.swift Tidepad/Utilities/*.swift Tests/EditorChecks.swift -o build/EditorChecks
 build/EditorChecks
