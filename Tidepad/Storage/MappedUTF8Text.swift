@@ -26,6 +26,9 @@ final class MappedUTF8Text: @unchecked Sendable {
     /// Guards the cache; TextKit may read from background threads (e.g. spell checking, printing).
     private let lock = NSLock()
 
+    /// An empty text (no file).
+    static let empty = try! MappedUTF8Text(data: Data())
+
     convenience init(url: URL) throws {
         try self.init(data: Data(contentsOf: url, options: .alwaysMapped))
     }

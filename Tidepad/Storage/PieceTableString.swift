@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(AppKit)
+import AppKit // NSString's pasteboard initialiser (below) comes from AppKit.
+#endif
 
 /// An NSString backed by a PieceTable. NSString is a class cluster that Apple documents for
 /// subclassing: the primitives are `length` and `character(at:)`, and overriding
@@ -17,20 +20,29 @@ final class PieceTableString: NSString, @unchecked Sendable {
         #endif
     }
 
-    // Initialisers NSString requires every subclass to provide; a PieceTableString is only ever made
-    // from a table.
-    required init?(coder: NSCoder) { fatalError("PieceTableString is not archivable") }
+    // Initialisers. On macOS a subclass inherits NSString's required convenience initialisers
+    // (e.g. init(stringLiteral:), declared in an extension and so not overridable) only by providing
+    // all of NSString's designated ones: init(), init?(coder:) and AppKit's pasteboard initialiser.
     #if os(Linux)
+    required init?(coder: NSCoder) { fatalError("PieceTableString is not archivable") }
     // swift-corelibs-foundation (used only to run the Foundation checks on Linux).
     required convenience init(string aString: String) { fatalError("Not supported") }
     required convenience init(unicodeScalarLiteral value: StaticString) { fatalError("Not supported") }
     required convenience init(extendedGraphemeClusterLiteral value: StaticString) { fatalError("Not supported") }
     required convenience init(stringLiteral value: StaticString) { fatalError("Not supported") }
     #else
-    required convenience init(itemProviderData data: Data, typeIdentifier: String) throws { fatalError("Not supported") }
-    required convenience init(unicodeScalarLiteral value: StaticString) { fatalError("Not supported") }
-    required convenience init(extendedGraphemeClusterLiteral value: StaticString) { fatalError("Not supported") }
-    required convenience init(stringLiteral value: StaticString) { fatalError("Not supported") }
+    /// An empty string (NSString's designated initialiser).
+    override init() {
+        table = PieceTable(original: .empty)
+        super.init()
+    }
+    required init?(coder: NSCoder) { fatalError("PieceTableString is not archivable") }
+    required init(itemProviderData data: Data, typeIdentifier: String) throws { fatalError("Not supported") }
+    #if canImport(AppKit)
+    required init?(pasteboardPropertyList propertyList: Any, ofType type: NSPasteboard.PasteboardType) {
+        fatalError("Not supported")
+    }
+    #endif
     #endif
 
     // The two NSString primitives.

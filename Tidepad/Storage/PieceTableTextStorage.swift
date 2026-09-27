@@ -19,7 +19,17 @@ final class PieceTableTextStorage: NSTextStorage {
         super.init()
     }
 
+    /// An empty storage (NSTextStorage's designated initialiser; providing all of them lets the
+    /// subclass inherit NSAttributedString's required convenience initialisers).
+    override init() {
+        table = PieceTable(original: .empty)
+        backing = PieceTableString(table: table)
+        uniformAttributes = [:]
+        super.init()
+    }
+
     required init?(coder: NSCoder) { fatalError("Not archivable") }
+    required init(itemProviderData data: Data, typeIdentifier: String) throws { fatalError("Not supported") }
     required init?(pasteboardPropertyList propertyList: Any, ofType type: NSPasteboard.PasteboardType) {
         fatalError("Not supported")
     }
