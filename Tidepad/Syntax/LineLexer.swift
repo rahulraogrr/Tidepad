@@ -4,6 +4,7 @@ struct LexerState: Equatable, Sendable {
     var blockDepth = 0
     var markupComment = false
     var inTag = false
+    var tagNameSeen = false
     var quote: [UInt16] = []
     var fencedCode = false
 }
@@ -85,7 +86,7 @@ struct LineLexer: Sendable {
                 } else { state.quote = [units[i]]; i += 1 }
                 emit(start, i, .string)
             } else if language.isMarkup && units[i] == 60 {
-                state.inTag = true; i += 1; emit(start, i, .punctuation)
+                state.inTag = true; state.tagNameSeen = false; i += 1; emit(start, i, .punctuation)
             } else if language.isMarkup && units[i] == 62 {
                 state.inTag = false; i += 1; emit(start, i, .punctuation)
             } else if units[i] >= 48 && units[i] <= 57 {
@@ -100,7 +101,11 @@ struct LineLexer: Sendable {
                 if ["true", "false", "null", "nil", "undefined", "yes", "no"].contains(normalized) {
                     emit(start, i, .literal)
                 } else if keywords.contains(normalized) { emit(start, i, .keyword) }
-                else if language.isMarkup && state.inTag { emit(start, i, .tag) }
+                else if language.isMarkup && state.inTag {
+                    // Notepad++ colours the tag name and its attribute names differently.
+                    emit(start, i, state.tagNameSeen ? .attribute : .tag)
+                    state.tagNameSeen = true
+                }
                 else if language == .yaml || language == .css {
                     var next = i
                     while next < units.count && units[next] == 32 { next += 1 }

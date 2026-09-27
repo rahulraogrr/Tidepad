@@ -52,7 +52,7 @@ enum SyntaxLanguage: String, Sendable, CaseIterable {
     }
 }
 
-enum SyntaxKind: Sendable { case keyword, string, number, comment, literal, punctuation, tag, heading }
+enum SyntaxKind: Sendable { case keyword, string, number, comment, literal, punctuation, tag, attribute, heading }
 struct SyntaxToken: Sendable, Equatable {
     var range: NSRange
     let kind: SyntaxKind

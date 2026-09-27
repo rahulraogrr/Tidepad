@@ -35,6 +35,11 @@ import Foundation
             precondition(!engine.lines[0].tokens.contains { $0.kind == .string && $0.range.length > 3 }, "Apostrophe opened a string in \(language)")
             precondition(engine.lines[1].incoming.quote.isEmpty, "Quote state carried over in \(language)")
         }
+        // Markup: the tag name is a tag, later names in the tag are attributes.
+        var markup = IncrementalSyntaxEngine()
+        markup.update(text: "<div class=\"x\" id='y'>text</div>", language: .html)
+        let kinds = markup.lines[0].tokens.filter { $0.kind == .tag || $0.kind == .attribute }.map(\.kind)
+        precondition(kinds == [.tag, .attribute, .attribute, .tag], "Tag and attribute names: \(kinds)")
         var yaml = IncrementalSyntaxEngine()
         yaml.update(text: "a: 'quoted'\n- \"x\"\nc: [\"y\", 'z']", language: .yaml)
         precondition(yaml.lines.allSatisfy { $0.tokens.contains { $0.kind == .string } }, "YAML quoted scalars remain strings")

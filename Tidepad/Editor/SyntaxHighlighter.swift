@@ -66,6 +66,7 @@ import AppKit
         guard editedMask.contains(.editedCharacters) else { return }
         // Temporary attributes shift with edits. Cover both the old and shifted painted span.
         ready = false
+        (textView?.layoutManager as? CodeLayoutManager)?.adjustBoldRanges(editedRange: editedRange, delta: delta)
         guard paintedRange.length > 0 else { return }
         let start = min(paintedRange.location, editedRange.location)
         let end = min(textStorage.length, NSMaxRange(paintedRange) + max(0, delta))
@@ -84,10 +85,16 @@ import AppKit
         var range = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
         range.length = min(range.length, policy.maximumPaintLength)
         let dark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        var bold: [NSRange] = []
         for token in engine.tokens(in: range) {
-            layout.addTemporaryAttribute(.foregroundColor, value: SyntaxPalette.color(for: token.kind, dark: dark),
+            layout.addTemporaryAttribute(.foregroundColor, value: SyntaxPalette.color(for: token.kind, language: language, dark: dark),
                                          forCharacterRange: token.range)
+            guard SyntaxPalette.isBold(token.kind) else { continue }
+            if let last = bold.last, NSMaxRange(last) == token.range.location {
+                bold[bold.count - 1].length += token.range.length // Merge adjacent runs, e.g. ">=".
+            } else { bold.append(token.range) }
         }
+        (layout as? CodeLayoutManager)?.boldRanges = bold
         paintedRange = range
     }
 
@@ -96,6 +103,7 @@ import AppKit
         let length = (textView.textStorage?.length ?? 0)
         let range = NSIntersectionRange(paintedRange, NSRange(location: 0, length: length))
         if range.length > 0 { textView.layoutManager?.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range) }
+        (textView.layoutManager as? CodeLayoutManager)?.boldRanges = []
         paintedRange = NSRange(location: 0, length: 0)
     }
 }

@@ -1,19 +1,34 @@
 import AppKit
 
+/// Notepad++'s default ("classic") style in light mode, with brighter equivalents for dark mode.
+/// Keywords and operators are drawn bold (see CodeLayoutManager), as in Notepad++.
 enum SyntaxPalette {
-    static func color(for kind: SyntaxKind, dark: Bool) -> NSColor {
+    static func color(for kind: SyntaxKind, language: SyntaxLanguage = .plain, dark: Bool) -> NSColor {
         switch kind {
-        case .keyword: return dark ? rgb(0.80, 0.58, 0.96) : rgb(0.43, 0.16, 0.64)
-        case .string: return dark ? rgb(0.85, 0.69, 0.47) : rgb(0.60, 0.25, 0.12)
-        case .number: return dark ? rgb(0.63, 0.80, 0.65) : rgb(0.12, 0.44, 0.33)
-        case .comment: return dark ? rgb(0.51, 0.65, 0.49) : rgb(0.28, 0.45, 0.27)
-        case .literal: return dark ? rgb(0.48, 0.73, 0.95) : rgb(0.13, 0.31, 0.72)
-        case .tag: return dark ? rgb(0.48, 0.78, 0.84) : rgb(0.05, 0.40, 0.49)
-        case .heading: return dark ? rgb(0.54, 0.73, 1.0) : rgb(0.12, 0.32, 0.64)
-        case .punctuation: return dark ? rgb(0.73, 0.75, 0.79) : rgb(0.34, 0.36, 0.40)
+        case .keyword, .literal: return dark ? hex(0x6CA8FF) : hex(0x0000FF) // instruction words: blue
+        case .string:
+            // Markup strings are attribute values (purple); other strings are grey.
+            if language.isMarkup { return dark ? hex(0xC792FF) : hex(0x8000FF) }
+            return dark ? hex(0xB4B4B4) : hex(0x808080)
+        case .number: return dark ? hex(0xFFA040) : hex(0xFF8000)            // orange
+        case .comment: return dark ? hex(0x5FB85F) : hex(0x008000)           // green
+        case .punctuation: return dark ? hex(0xA8B8FF) : hex(0x000080)       // operators: navy
+        case .tag: return dark ? hex(0x6CA8FF) : hex(0x0000FF)               // tag names: blue
+        case .attribute: return dark ? hex(0xFF7373) : hex(0xFF0000)         // attribute names: red
+        case .heading: return dark ? hex(0x6CA8FF) : hex(0x000080)
         }
     }
-    private static func rgb(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> NSColor {
-        NSColor(srgbRed: red, green: green, blue: blue, alpha: 1)
+
+    /// Kinds Notepad++ shows in bold.
+    static func isBold(_ kind: SyntaxKind) -> Bool {
+        switch kind {
+        case .keyword, .literal, .punctuation, .heading: return true
+        default: return false
+        }
+    }
+
+    private static func hex(_ value: UInt32) -> NSColor {
+        NSColor(srgbRed: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255,
+                blue: CGFloat(value & 255) / 255, alpha: 1)
     }
 }

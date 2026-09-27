@@ -18,7 +18,7 @@ import Combine
         scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 500))
         // Explicit TextKit 1 stack supports the ruler's glyph layout queries.
         let storage = NSTextStorage()
-        let layout = NSLayoutManager()
+        let layout = CodeLayoutManager()
         layout.allowsNonContiguousLayout = true
         layout.backgroundLayoutEnabled = false
         let container = NSTextContainer(containerSize: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
