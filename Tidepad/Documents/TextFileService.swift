@@ -46,9 +46,15 @@ struct LoadedText: Sendable {
 struct TextFileService {
     func read(_ url: URL) throws -> EditorDocument { try load(url).makeDocument() }
 
-    func load(_ url: URL) throws -> LoadedText {
+    /// Reads a file. Its encoding is detected, unless `choice` names one (Encoding ▸ Reopen with Encoding).
+    func load(_ url: URL, as choice: TextEncodingChoice? = nil) throws -> LoadedText {
         let stamp = FileStamp(url) // Before reading: a change during the read then still looks external.
         let data = try Data(contentsOf: url)
+        if let choice {
+            guard let decoded = choice.decode(data) else { throw CocoaError(.fileReadInapplicableStringEncoding) }
+            return LoadedText(url: url, text: decoded.text, encoding: choice.encoding, hasBOM: decoded.hadByteOrderMark,
+                              lines: LineIndex.Prepared(decoded.text), stamp: stamp)
+        }
         let signatures: [(bytes: [UInt8], encoding: String.Encoding)] = [
             ([0x00, 0x00, 0xFE, 0xFF], .utf32BigEndian),
             ([0xFF, 0xFE, 0x00, 0x00], .utf32LittleEndian),

@@ -121,9 +121,12 @@ enum LineEnding: String, CaseIterable {
         case .utf16: return "UTF-16"
         case .utf16LittleEndian: return "UTF-16 LE"
         case .utf16BigEndian: return "UTF-16 BE"
-        default: return String.localizedName(of: encoding)
+        default: return TextEncodingChoice.matching(encoding, byteOrderMark: hasByteOrderMark)?.name ?? String.localizedName(of: encoding)
         }
     }
+
+    /// The Encoding menu's choice for this document's encoding, if it offers one.
+    var encodingChoice: TextEncodingChoice? { TextEncodingChoice.matching(encoding, byteOrderMark: hasByteOrderMark) }
 }
 
 extension EditorDocument {

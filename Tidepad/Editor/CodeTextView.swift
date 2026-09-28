@@ -1,12 +1,19 @@
 import AppKit
 
 final class CodeTextView: NSTextView {
+    /// What Return types: the document's line break, so a Windows (CRLF) file stays CRLF, as in Notepad++.
+    var lineBreak = "\n"
     var matchingBrackets: [NSRange] = []
     var appearanceChanged: (() -> Void)?
     /// Opens files dropped on the editor, as Notepad++ does, instead of inserting their paths.
     var openFiles: (([URL]) -> Void)?
     /// The link shown at a character index, if any. ⌘-click opens it with its default app.
     var linkAt: ((Int) -> URL?)?
+
+    override func insertNewline(_ sender: Any?) {
+        guard lineBreak != "\n" else { super.insertNewline(sender); return }
+        insertText(lineBreak, replacementRange: selectedRange())
+    }
 
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command), let url = link(under: event) {

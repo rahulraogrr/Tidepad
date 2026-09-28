@@ -33,6 +33,27 @@ final class WebSocketInbox: @unchecked Sendable {
         while Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
     }
 
+    /// Return types the document's line break, so a Windows (CRLF) file stays CRLF, and a document
+    /// without line breaks keeps the line ending chosen for it.
+    @MainActor static func checkLineEndings() {
+        let windows = EditorSession(document: EditorDocument(text: "one\r\ntwo"))
+        windows.textView.setSelectedRange(NSRange(location: 3, length: 0))
+        windows.textView.insertNewline(nil)
+        precondition(windows.document.text == "one\r\n\r\ntwo" && windows.document.lineEnding == .crlf, "Return in a CRLF file: \(windows.document.text.debugDescription)")
+        let unix = EditorSession(document: EditorDocument(text: "a\nb"))
+        unix.textView.setSelectedRange(NSRange(location: 1, length: 0))
+        unix.textView.insertNewline(nil)
+        precondition(unix.document.text == "a\n\nb", "Return in an LF file")
+        let blank = EditorSession(document: EditorDocument(text: ""))
+        blank.document.lineEnding = .crlf
+        blank.updateLineEnding()
+        blank.textView.insertText("x", replacementRange: NSRange(location: 0, length: 0))
+        precondition(blank.document.lineEnding == .crlf, "A document without line breaks keeps its chosen line ending")
+        blank.textView.insertNewline(nil)
+        precondition(blank.document.text == "x\r\n", "Return types the chosen line ending: \(blank.document.text.debugDescription)")
+        print("PASS line endings: Return types the document's line break; a chosen line ending is kept")
+    }
+
     /// Printing: the whole text in the editor font, black on white, with the Light theme's syntax colours
     /// and bold keywords, however far the editor has coloured it on screen.
     @MainActor static func checkPrinting() {
@@ -458,6 +479,7 @@ final class WebSocketInbox: @unchecked Sendable {
         precondition(limited.document.text == "let value = 42")
         checkLinksAndLargeFiles()
         checkPrinting()
+        checkLineEndings()
         checkSearchEditing()
         checkTextCommands()
         try checkExternalChanges(output: output)

@@ -328,14 +328,15 @@ import Observation
     }
 
     /// Replaces the document's text with the file's current contents, as one undoable step, and
-    /// marks it saved. Encoding, BOM and line endings follow the file.
-    func reloadFromDisk(_ document: EditorDocument) throws {
+    /// marks it saved. Encoding, BOM and line endings follow the file, or `encoding` when given
+    /// (Encoding ▸ Reopen with Encoding).
+    func reloadFromDisk(_ document: EditorDocument, as encoding: TextEncodingChoice? = nil) throws {
         guard let url = document.fileURL else { return }
         var coordinationError: NSError?
         var result: Result<LoadedText, Error>?
         NSFileCoordinator(filePresenter: presenters[document.id]).coordinate(
             readingItemAt: url, options: [], error: &coordinationError) { readURL in
-            result = Result { try files.load(readURL) }
+            result = Result { try files.load(readURL, as: encoding) }
         }
         if let coordinationError { throw coordinationError }
         guard let loaded = try result?.get() else { return }

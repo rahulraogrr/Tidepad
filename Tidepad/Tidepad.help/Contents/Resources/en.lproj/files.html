@@ -25,6 +25,10 @@
 <h2>Changes made by other apps</h2>
 <p>If another app changes a file you have open and you haven't edited it, Tidepad reloads it. If you have unsaved changes, Tidepad asks what to do.</p>
 <h2>Encodings</h2>
-<p>The Encoding menu shows the file's encoding (UTF-8, UTF-8 with BOM, UTF-16 or ASCII). Tidepad saves files in the encoding and line endings they were opened with. Converting to another encoding isn't available yet.</p>
+<p>Tidepad detects each file's encoding when it opens it and shows it in the status bar. The Encoding menu ticks it too.</p>
+<p><strong>Convert:</strong> choose another encoding in the Encoding menu (or under Other Encodings) to save the document in it from now on. The text stays the same. If some characters can't be written in that encoding, for example Chinese text in Western (Windows 1252), Tidepad says so and changes nothing.</p>
+<p><strong>Reopen with Encoding:</strong> if a file's text looks wrong, its encoding was probably guessed wrongly. Choose Encoding &gt; Reopen with Encoding and the right one to read the file again. Any unsaved changes are lost, so Tidepad asks first.</p>
+<h2>Line endings</h2>
+<p>The status bar shows whether the file uses Unix (LF), Windows (CRLF) or classic Mac (CR) line breaks. To change every line break, choose Encoding &gt; Line Endings; this can be undone. Return types the document's line break, so a Windows file stays a Windows file.</p>
 </body>
 </html>

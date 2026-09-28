@@ -56,6 +56,56 @@ import Observation
         }
     }
 
+    // MARK: Encoding menu
+
+    /// Encoding ▸ an encoding: the document is saved in it from now on (Notepad++'s "Convert to").
+    /// The text itself doesn't change. If a character can't be written in the encoding, nothing
+    /// changes and Tidepad says which one, so converting never loses text.
+    func convertEncoding(to choice: TextEncodingChoice) {
+        guard let document, document.encodingChoice != choice else { return }
+        if let character = choice.firstUnwritableCharacter(in: document.text) {
+            placeholder("Can’t Convert to \(choice.name)", detail: "“\(character)” can’t be written in \(choice.name), so converting would lose text. Choose an encoding that can hold every character, such as UTF-8.")
+            return
+        }
+        document.encoding = choice.encoding
+        document.hasByteOrderMark = choice.byteOrderMark
+        document.markUnsaved()
+    }
+
+    /// Encoding ▸ Reopen with Encoding: reads the file again in another encoding, for a file whose
+    /// encoding was guessed wrongly (Notepad++'s "Encode in"). Unsaved changes are lost, so it asks first.
+    func reopen(with choice: TextEncodingChoice) {
+        guard let document, document.fileURL != nil else { return }
+        if document.hasUnsavedChanges {
+            let alert = NSAlert()
+            alert.messageText = "Reopen “\(document.displayName)” as \(choice.name)?"
+            alert.informativeText = "Your unsaved changes to this document will be lost."
+            alert.addButton(withTitle: "Reopen")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        do { try documents.reloadFromDisk(document, as: choice) } catch {
+            placeholder("Can’t Reopen as \(choice.name)", detail: "“\(document.displayName)” isn’t valid \(choice.name) text.")
+        }
+    }
+
+    /// Encoding ▸ Line Endings: changes every line break in the document, as one undoable edit, and
+    /// Return types the new one from then on.
+    func convertLineEndings(to ending: LineEnding) {
+        guard let session, let storage = session.textView.textStorage, session.textView.isEditable else { return }
+        let text = storage.string
+        let converted = ending.applied(to: text)
+        if converted != text {
+            let caret = min(session.textView.selectedRange().location, storage.length)
+            let before = ending.applied(to: (text as NSString).substring(to: caret)) as NSString
+            let edit = TextEdit(range: NSRange(location: 0, length: storage.length), text: converted,
+                                selection: NSRange(location: before.length, length: 0), actionName: "Convert Line Endings")
+            guard session.apply(edit) else { NSSound.beep(); return }
+        }
+        session.document.lineEnding = ending
+        session.updateLineEnding()
+    }
+
     func setLanguage(_ language: SyntaxLanguage?) {
         document?.languageOverride = language
         if let document { session?.setLanguage(document.syntaxLanguage) }

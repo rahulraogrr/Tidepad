@@ -120,6 +120,37 @@ import Foundation
         let kept = EditorDocument(text: "x")
         kept.markUnsaved()
         precondition(kept.hasUnsavedChanges, "A deleted-but-kept document needs saving")
-        print("Core checks passed: line offsets, Unicode, CRLF/CR/LF, dirty state, UTF-8/UTF-16 file round trips.")
+        // Encoding menu: line ending conversion, reopening in a chosen encoding, converting.
+        precondition(LineEnding.crlf.applied(to: "a\nb\r\nc\rd") == "a\r\nb\r\nc\r\nd", "Convert to CRLF")
+        precondition(LineEnding.lf.applied(to: "a\r\nb\rc\n") == "a\nb\nc\n" && LineEnding.cr.applied(to: "a\r\nb\n") == "a\rb\r")
+        let bomUTF16 = TextEncodingChoice.utf16LittleEndian.decode(Data([0xFF, 0xFE, 0x68, 0x00, 0x69, 0x00]))
+        precondition(bomUTF16?.text == "hi" && bomUTF16?.hadByteOrderMark == true, "UTF-16 LE skips its BOM")
+        precondition(TextEncodingChoice.utf16BigEndian.decode(Data([0x00, 0x68, 0x00, 0x69]))?.text == "hi")
+        precondition(TextEncodingChoice.utf8.decode(Data([0xE9])) == nil, "Invalid UTF-8 isn't opened as UTF-8")
+        precondition(TextEncodingChoice.windowsWestern.firstUnwritableCharacter(in: "café “q”") == nil)
+        precondition(TextEncodingChoice.windowsWestern.firstUnwritableCharacter(in: "ab中c") == "中", "Unwritable characters are found")
+        precondition(TextEncodingChoice.matching(.utf8, byteOrderMark: true) == .utf8WithBOM
+                     && TextEncodingChoice.matching(.windowsCP1252, byteOrderMark: false) == .windowsWestern)
+        precondition(TextEncodingChoice.others.allSatisfy { String.availableStringEncodings.contains($0.encoding) }, "Every offered encoding exists")
+        let reopened = directory.appendingPathComponent("reopen.txt")
+        try Data([0x63, 0x61, 0x66, 0xE9]).write(to: reopened)
+        let asWestern = try service.load(reopened, as: .windowsWestern)
+        precondition(asWestern.text == "caf\u{E9}" && asWestern.encoding == .windowsCP1252, "Reopen as Windows 1252")
+        precondition((try? service.load(reopened, as: .utf8)) == nil, "Reopening in an encoding the bytes don't fit fails")
+        let converted = EditorDocument(text: "h\u{E9}llo\r\n")
+        for choice in TextEncodingChoice.common + TextEncodingChoice.others {
+            converted.encoding = choice.encoding
+            converted.hasByteOrderMark = choice.byteOrderMark
+            let file = directory.appendingPathComponent("converted.txt")
+            try? FileManager.default.removeItem(at: file)
+            if choice.firstUnwritableCharacter(in: converted.text) != nil {
+                precondition((try? service.write(converted, to: file)) == nil, "Saving never drops characters (\(choice.name))")
+                continue
+            }
+            try service.write(converted, to: file)
+            let back = try service.load(file, as: choice)
+            precondition(back.text == converted.text && back.hasBOM == choice.byteOrderMark, "Round trip in \(choice.name)")
+        }
+        print("Core checks passed: line offsets, Unicode, CRLF/CR/LF, dirty state, UTF-8/UTF-16 file round trips, encodings and line ending conversion.")
     }
 }

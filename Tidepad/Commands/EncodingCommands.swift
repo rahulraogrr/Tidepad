@@ -7,22 +7,38 @@ struct EncodingCommands: Commands {
     }
 }
 
+/// The Encoding menu, as in Notepad++. The ticked encoding is the one the document is saved in;
+/// choosing another converts it (the text stays the same). Reopen with Encoding reads the file again
+/// in another encoding, for a file that was guessed wrongly. Line Endings converts every line break.
 private struct EncodingMenuItems: View {
     let context: WorkspaceCommandContext
+
     var body: some View {
         Group {
-            encoding("UTF-8", selected: context.document?.encoding == .utf8 && context.document?.hasByteOrderMark == false)
-            encoding("UTF-8 with BOM", selected: context.document?.encoding == .utf8 && context.document?.hasByteOrderMark == true)
-            encoding("UTF-16 LE", selected: context.document?.encoding == .utf16LittleEndian || context.document?.encoding == .utf16)
-            encoding("UTF-16 BE", selected: context.document?.encoding == .utf16BigEndian)
-            encoding("ASCII", selected: context.document?.encoding == .ascii)
+            ForEach(TextEncodingChoice.common) { choice in convertItem(choice) }
+            Menu("Other Encodings") {
+                ForEach(TextEncodingChoice.others) { choice in convertItem(choice) }
+            }
             Divider()
-            Button("Convert to UTF-8") {}.disabled(true)
-            Button("Convert to UTF-8 BOM") {}.disabled(true)
+            Menu("Reopen with Encoding") {
+                ForEach(TextEncodingChoice.reopenable) { choice in
+                    Button(choice.name) { context.reopen(with: choice) }
+                }
+            }
+            .disabled(context.document?.fileURL == nil)
+            Divider()
+            Menu("Line Endings") {
+                ForEach(LineEnding.allCases, id: \.self) { ending in
+                    Toggle(ending.statusName, isOn: Binding(get: { context.document?.lineEnding == ending },
+                                                            set: { _ in context.convertLineEndings(to: ending) }))
+                }
+            }
         }
+        .disabled(!context.hasDocument)
     }
-    private func encoding(_ title: String, selected: Bool) -> some View {
-        Toggle(title, isOn: .constant(selected)).disabled(true)
-            .help("Current encoding is informational. Encoding conversion is not implemented.")
+
+    private func convertItem(_ choice: TextEncodingChoice) -> some View {
+        Toggle(choice.name, isOn: Binding(get: { context.document?.encodingChoice == choice },
+                                          set: { _ in context.convertEncoding(to: choice) }))
     }
 }

@@ -77,7 +77,7 @@ import Combine
         EditorDiagnostics.measure("gutter") { ruler.lineIndex = index }
         document.lineCount = index.starts.count
         document.utf16Length = storage.length
-        document.lineEnding = index.lineEnding
+        updateLineEnding()
         updateCursor()
         highlighter = SyntaxHighlighter(textView: textView, lineIndex: index, baseFont: baseFont, policy: syntaxPolicy)
         highlighter?.update(language: language)
@@ -148,6 +148,13 @@ import Combine
         return true
     }
 
+    /// The document's line ending follows its text; a document without line breaks keeps the one it
+    /// has (a new tab's, or one chosen in Encoding ▸ Line Endings). Return types it.
+    func updateLineEnding() {
+        if index.starts.count > 1 { document.lineEnding = index.lineEnding }
+        textView.lineBreak = document.lineEnding.text
+    }
+
     func setLanguage(_ language: SyntaxLanguage) {
         self.language = language
         highlighter?.setLanguage(language)
@@ -208,7 +215,7 @@ import Combine
         if textView.undoManager?.isUndoing != true && textView.undoManager?.isRedoing != true {
             restoreEditingState(document.revision)
         }
-        document.lineEnding = index.lineEnding
+        updateLineEnding()
         EditorDiagnostics.measure("gutter") { ruler.lineIndex = index }
         document.lineCount = index.starts.count
         document.utf16Length = textView.textStorage?.length ?? 0
