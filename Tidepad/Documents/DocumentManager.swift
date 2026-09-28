@@ -86,6 +86,23 @@ import Observation
         }
     }
 
+    /// Adds the tabs of the last session (see SessionKeeper), replacing the blank Untitled tab a new
+    /// window starts with. Files already open (e.g. opened from Finder at launch) aren't added twice.
+    func restore(_ restored: [EditorDocument], selected: Int?) {
+        guard !restored.isEmpty else { return }
+        documents.removeAll { $0.fileURL == nil && !$0.hasUnsavedChanges && $0.text.isEmpty }
+        var chosen: EditorDocument?
+        for (index, document) in restored.enumerated() {
+            if let url = document.fileURL, documents.contains(where: { $0.fileURL?.standardizedFileURL == url.standardizedFileURL }) { continue }
+            documents.append(document)
+            watch(document)
+            if index == selected { chosen = document }
+        }
+        untitledCount = max(untitledCount, documents.filter { $0.fileURL == nil }.count)
+        if let chosen { selectedID = chosen.id }
+        else if !documents.contains(where: { $0.id == selectedID }) { selectedID = documents.last?.id }
+    }
+
     func acceptOpened(_ document: EditorDocument) {
         if let url = document.fileURL, let existing = documents.first(where: { $0.fileURL?.standardizedFileURL == url.standardizedFileURL }) {
             selectedID = existing.id; return

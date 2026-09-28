@@ -13,7 +13,7 @@ private struct SettingsMenuItems: View {
     var body: some View {
         Group {
             Button("Preferences…") {
-                context.placeholder("Tidepad Preferences", detail: "A full preferences window is planned. For now, use the Settings menu to choose a theme, editor font, or tab size. These choices apply to this app session.")
+                context.placeholder("Tidepad Preferences", detail: "A full preferences window is planned. For now, use the Settings menu to choose a theme, editor font, or tab size. Tidepad remembers these choices, and the open tabs with any unsaved text, between launches.")
             }.keyboardShortcut(",")
             Menu("Style / Theme") {
                 ForEach(EditorAppearance.allCases, id: \.self) { appearance in

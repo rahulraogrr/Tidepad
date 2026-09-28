@@ -20,6 +20,7 @@ import AppKit
     let project = ProjectFolder()
     let terminal = TerminalPanel()
     lazy var claude = ClaudeCodeConnection(manager: manager, sessions: sessions, project: project)
+    lazy var keeper = SessionKeeper(manager: manager, sessions: sessions, terminal: terminal)
     lazy var commandContext = WorkspaceCommandContext(documents: manager, sessions: sessions, preferences: preferences,
                                                       project: project, terminal: terminal)
 
@@ -43,21 +44,29 @@ import AppKit
                 ?? FileManager.default.homeDirectoryForCurrentUser
         }
         terminal.environment = { [weak self] in self?.claude.terminalEnvironment ?? [:] }
+        // The saved theme, then the last session: tabs, unsaved text, the terminal panel.
+        NSApp.appearance = preferences.appearance.appearance
+        sessions.sessionCreated = { [weak self] session in self?.keeper.sessionCreated(session) }
+        keeper.restore()
+        keeper.startAutosave()
         DispatchQueue.main.async { NativeMenuCoordinator.arrange() }
     }
     func windowDidBecomeKey(_ notification: Notification) {
         DispatchQueue.main.async { NativeMenuCoordinator.arrange() }
     }
     /// Tidepad is a single-window app, like Notepad++: closing the workspace window quits.
-    /// Set once the close prompts have been answered, so quitting doesn't ask a second time.
+    /// Quitting keeps unsaved tabs for next time (see SessionKeeper) instead of asking about each one;
+    /// only if the session can't be written does Tidepad ask, as before.
+    /// Set once the window has closed, so quitting doesn't do it twice.
     private var closeConfirmed = false
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if closeConfirmed { return .terminateNow }
+        if keeper.save() { return .terminateNow }
         return manager.confirmCloseAll() ? .terminateNow : .terminateCancel
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard manager.confirmCloseAll() else { return false }
+        guard keeper.save() || manager.confirmCloseAll() else { return false }
         closeConfirmed = true
         DispatchQueue.main.async { NSApp.terminate(nil) }
         return true

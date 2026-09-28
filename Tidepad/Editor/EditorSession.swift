@@ -245,6 +245,10 @@ import Combine
     var openFiles: (([URL]) -> Void)?
     /// Called when the selection changes in any editor.
     var selectionChanged: ((EditorSession) -> Void)?
+    /// Called when an editor is created for a tab (the session keeper puts its caret back).
+    var sessionCreated: ((EditorSession) -> Void)?
+    /// The tab's editor if it has been created, without creating one.
+    func existingSession(for document: EditorDocument) -> EditorSession? { sessions[document.id] }
     func session(for document: EditorDocument) -> EditorSession {
         if let session = sessions[document.id] { return session }
         let session = EditorSession(document: document)
@@ -252,6 +256,7 @@ import Combine
         session.textView.openFiles = { [weak self] urls in self?.openFiles?(urls) }
         session.selectionChanged = { [weak self] session in self?.selectionChanged?(session) }
         sessions[document.id] = session
+        sessionCreated?(session)
         return session
     }
     func applyDisplayOptions(_ options: EditorDisplayOptions) {

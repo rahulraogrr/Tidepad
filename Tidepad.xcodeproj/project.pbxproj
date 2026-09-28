@@ -73,6 +73,7 @@
 		693F659DC26BF0C575D498E9 /* Tidepad/ClaudeCode/IDEServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4FBB8EDF11028B39DD0C36D /* Tidepad/ClaudeCode/IDEServer.swift */; };
 		F234D5355E269B1A5A567EF1 /* Tidepad/ClaudeCode/ClaudeCodeConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2416E85626247497D1FC96B /* Tidepad/ClaudeCode/ClaudeCodeConnection.swift */; };
 		A655EFE5DE9D2FC0C6CD9F44 /* Tidepad/ClaudeCode/DiffReviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFEF662BDECE79049F9B6551 /* Tidepad/ClaudeCode/DiffReviewWindow.swift */; };
+		45066EE01B57451EB780685F /* Tidepad/Session/SessionKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7649516DEFBB8965053BE13 /* Tidepad/Session/SessionKeeper.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -143,6 +144,7 @@
 		C4FBB8EDF11028B39DD0C36D /* Tidepad/ClaudeCode/IDEServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/ClaudeCode/IDEServer.swift; sourceTree = SOURCE_ROOT; };
 		D2416E85626247497D1FC96B /* Tidepad/ClaudeCode/ClaudeCodeConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/ClaudeCode/ClaudeCodeConnection.swift; sourceTree = SOURCE_ROOT; };
 		BFEF662BDECE79049F9B6551 /* Tidepad/ClaudeCode/DiffReviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/ClaudeCode/DiffReviewWindow.swift; sourceTree = SOURCE_ROOT; };
+		E7649516DEFBB8965053BE13 /* Tidepad/Session/SessionKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Session/SessionKeeper.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -159,6 +161,7 @@
 		64292B1C2B2E13EAD8788FC8 = {
 			isa = PBXGroup;
 			children = (
+				E7649516DEFBB8965053BE13 /* Tidepad/Session/SessionKeeper.swift */,
 				6F002C93B43B96C6070872DC /* Tidepad/ClaudeCode/IDEProtocol.swift */,
 				AE672C1375E729F1BBF5A5E6 /* Tidepad/ClaudeCode/LineDiff.swift */,
 				C4FBB8EDF11028B39DD0C36D /* Tidepad/ClaudeCode/IDEServer.swift */,
@@ -288,6 +291,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				45066EE01B57451EB780685F /* Tidepad/Session/SessionKeeper.swift in Sources */,
 				4F145E5A108841260159880A /* Tidepad/ClaudeCode/IDEProtocol.swift in Sources */,
 				2EBF3761F24C40C58FC32C8D /* Tidepad/ClaudeCode/LineDiff.swift in Sources */,
 				693F659DC26BF0C575D498E9 /* Tidepad/ClaudeCode/IDEServer.swift in Sources */,

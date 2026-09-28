@@ -18,6 +18,14 @@ struct FileStamp: Equatable, Sendable {
 }
 
 /// Decode off the main actor; AppKit receives the resulting immutable value on the main actor.
+extension FileStamp {
+    /// A stamp recorded earlier (the session keeps them across launches).
+    init(modified: Date?, size: Int?) {
+        self.modified = modified
+        self.size = size
+    }
+}
+
 struct LoadedText: Sendable {
     let url: URL
     let text: String

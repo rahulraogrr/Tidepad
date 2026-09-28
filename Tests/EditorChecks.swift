@@ -271,6 +271,66 @@ final class WebSocketInbox: @unchecked Sendable {
         print("PASS Claude Code connection: lock file, token check, handshake, tool calls, openFile selection, selection notifications, disconnect")
     }
 
+    /// The session and settings survive a relaunch: unsaved and Untitled text, the tabs and the selected
+    /// tab, file stamps (no false "changed by another application"), backups, and every setting.
+    @MainActor static func checkSessionAndPreferences(output: URL) throws {
+        let fm = FileManager.default
+        let directory = output.appendingPathComponent("session")
+        try? fm.removeItem(at: directory)
+        let edited = output.appendingPathComponent("session-edited.txt"), clean = output.appendingPathComponent("session-clean.txt")
+        try "on disk\n".write(to: edited, atomically: true, encoding: .utf8)
+        try "clean\n".write(to: clean, atomically: true, encoding: .utf8)
+        let manager = DocumentManager() // Starts with a blank Untitled tab, which isn't worth keeping.
+        manager.open([edited, clean])
+        guard let editedDocument = manager.documents.first(where: { $0.fileURL?.lastPathComponent == "session-edited.txt" }) else { fatalError("Missing tab") }
+        editedDocument.text = "edited but not saved\n"
+        manager.newDocument()
+        manager.selectedDocument?.text = "scratch notes\n"
+        manager.selectedID = editedDocument.id
+        let keeper = SessionKeeper(manager: manager, sessions: EditorSessionStore(), terminal: TerminalPanel(), directory: directory)
+        precondition(keeper.save(), "The session is saved")
+        let backups = try fm.contentsOfDirectory(atPath: directory.path).filter { $0.hasSuffix(".txt") }
+        precondition(backups.count == 2, "Backups of the two unsaved tabs: \(backups)")
+
+        // Tidepad starts again.
+        let relaunched = DocumentManager()
+        let restoredKeeper = SessionKeeper(manager: relaunched, sessions: EditorSessionStore(), terminal: TerminalPanel(), directory: directory)
+        restoredKeeper.restore()
+        let tabs = relaunched.documents
+        precondition(tabs.count == 3, "The tabs come back, without the blank Untitled one: \(tabs.map(\.displayName))")
+        precondition(tabs[0].fileURL?.lastPathComponent == "session-edited.txt" && tabs[0].text == "edited but not saved\n" && tabs[0].hasUnsavedChanges,
+                     "Unsaved edits come back, still unsaved")
+        precondition(relaunched.selectedID == tabs[0].id, "The selected tab comes back")
+        precondition(tabs[1].text == "clean\n" && !tabs[1].hasUnsavedChanges, "Saved files reopen from disk")
+        precondition(tabs[2].fileURL == nil && tabs[2].text == "scratch notes\n" && tabs[2].hasUnsavedChanges, "Untitled text comes back")
+        precondition(FileStamp(edited) == tabs[0].diskStamp, "The file's stamp is kept, so it isn't reported as changed by another app")
+        // Saving a restored tab writes the file and drops its backup.
+        precondition(relaunched.save(tabs[0]) && restoredKeeper.save())
+        let remaining = try fm.contentsOfDirectory(atPath: directory.path).filter { $0.hasSuffix(".txt") }
+        precondition(remaining.count == 1, "A saved tab's backup is removed: \(remaining)")
+        let written = try String(contentsOf: edited, encoding: .utf8)
+        precondition(written == "edited but not saved\n", "The restored tab saves to its file")
+
+        // Settings are remembered.
+        let suite = "TidepadEditorChecksPreferences"
+        guard let defaults = UserDefaults(suiteName: suite) else { fatalError("Missing defaults") }
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = EditorPreferences(defaults: defaults)
+        preferences.fontSize = 15
+        preferences.wordWrap = true
+        preferences.appearance = .dark
+        preferences.tabSize = 2
+        preferences.fontName = "Menlo"
+        preferences.showToolbar = false
+        let reloaded = EditorPreferences(defaults: defaults)
+        precondition(reloaded.fontSize == 15 && reloaded.wordWrap && reloaded.appearance == .dark && reloaded.tabSize == 2
+                     && reloaded.fontName == "Menlo" && !reloaded.showToolbar && reloaded.showStatusBar, "Settings are remembered")
+        preferences.fontName = nil
+        precondition(EditorPreferences(defaults: defaults).fontName == nil, "A cleared setting stays cleared")
+        print("PASS session: unsaved and Untitled text, tabs, selected tab, file stamps and backups kept across launches; settings remembered")
+    }
+
     @MainActor static func main() throws {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
@@ -366,6 +426,7 @@ final class WebSocketInbox: @unchecked Sendable {
         try checkProjectSidebar(output: output)
         checkTerminal(output: output)
         try checkClaudeCodeConnection(output: output)
+        try checkSessionAndPreferences(output: output)
         print("All native AppKit editor checks passed.")
     }
     @MainActor static func checkSearchEditing() {
