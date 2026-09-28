@@ -37,4 +37,9 @@ repository, whoever (or whatever) writes it.
   C library, not Foundation's `Process`, because `Process` can't give the shell a controlling
   terminal, which job control, Ctrl-C and full-screen programs need; Terminal.app works the same way.
   There is no Apple terminal view, so the screen is Tidepad's own xterm-compatible emulator
-  (`TerminalScreen`, Foundation only) drawn with Core Text; input uses `NSTextInputClient`.
+  (`TerminalScreen`, Foundation only) drawn with Core Text; input uses `NSTextInputClient`. Because
+  the view draws its own text, it describes itself to VoiceOver through `NSAccessibility` as a text
+  area (`TerminalAccessibility.swift`), and has new output read with announcement notifications.
+- Help (2026-09-28): Tidepad Help is an Apple Help Book (`Tidepad/Tidepad.help`) shown in macOS's
+  Help Viewer, the system's own help mechanism, which also makes the Help menu's search field find it.
+  When a feature, menu or shortcut changes, update its page and run `Scripts/build-help-index.sh`.

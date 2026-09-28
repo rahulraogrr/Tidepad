@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct FileCommands: Commands {
     let context: WorkspaceCommandContext
@@ -9,6 +10,10 @@ struct FileCommands: Commands {
             Button("Open Folder…", action: context.project.chooseAndOpen).keyboardShortcut("o", modifiers: [.command, .shift])
         }
         CommandGroup(replacing: .saveItem) { FileMenuItems(context: context) }
+        CommandGroup(replacing: .printItem) {
+            Button("Page Setup…") { NSApp.runPageLayout(nil) }.keyboardShortcut("p", modifiers: [.command, .shift])
+            Button("Print…") { context.printDocument() }.keyboardShortcut("p").disabled(!context.hasDocument)
+        }
     }
 }
 

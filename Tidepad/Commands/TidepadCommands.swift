@@ -19,12 +19,17 @@ struct TidepadCommands: Commands {
             Button("Show All") { NSApp.unhideAllApplications(nil) }
         }
         CommandGroup(replacing: .help) {
-            Button("Tidepad Help") {
-                context.placeholder("Tidepad Help", detail: "Use File to open and save documents or open a folder as a project, Search for Find, Replace, and recursive Find in Files, View for display options, and Language to override syntax coloring. Tools sorts or de-duplicates the selected lines, or the whole document when nothing is selected, and opens the Terminal panel, where + adds more terminals as tabs. Claude Code connects to Tidepad by itself in the Terminal panel, or with /ide in another terminal. Greyed-out commands are planned but not implemented.")
-            }
-            Button("Keyboard Shortcuts") {
-                context.placeholder("Keyboard Shortcuts", detail: "⌘N  New\n⌘O  Open\n⇧⌘O  Open Folder\n⌘S  Save\n⇧⌘S  Save As\n⌘W  Close Tab\n⌘Z / ⇧⌘Z  Undo / Redo\n⌘X / ⌘C / ⌘V  Cut / Copy / Paste\n⌘A  Select All\n⌘D  Duplicate Line\n⇧⌘K  Delete Line\n⌥⌘[ / ⌥⌘]  Move Line Up / Down\n⌃⌥J / ⌃⌥X / ⌃⌥S  Format JSON / XML / SQL\n⌘F  Find\n⌘G / ⇧⌘G  Find Next / Previous\n⌘H  Replace\n⇧⌘F  Find in Files\n⌘L  Go to Line\n⌘= / ⌘− / ⌘0  Zoom\n⌘B  Show / Hide Sidebar\n⌃`  Show / Hide Terminal\n⌘,  Preferences\n⌃⌘H  Hide Tidepad")
-            }
+            // Tidepad Help is an Apple Help Book (Tidepad/Tidepad.help), shown in macOS's Help Viewer;
+            // the Help menu's search field searches it too.
+            Button("Tidepad Help") { NSApp.showHelp(nil) }.keyboardShortcut("?", modifiers: .command)
+            Button("Keyboard Shortcuts") { TidepadHelp.open("shortcuts") }
         }
     }
+}
+
+/// Opens pages of Tidepad Help by their anchors (`<a name="…">` in the pages, found through the
+/// book's search index; see Scripts/build-help-index.sh).
+enum TidepadHelp {
+    static var book: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleHelpBookName") as? String ?? "" }
+    @MainActor static func open(_ anchor: String) { NSHelpManager.shared.openHelpAnchor(anchor, inBook: book) }
 }

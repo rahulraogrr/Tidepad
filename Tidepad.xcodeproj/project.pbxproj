@@ -75,6 +75,9 @@
 		A655EFE5DE9D2FC0C6CD9F44 /* Tidepad/ClaudeCode/DiffReviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFEF662BDECE79049F9B6551 /* Tidepad/ClaudeCode/DiffReviewWindow.swift */; };
 		45066EE01B57451EB780685F /* Tidepad/Session/SessionKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7649516DEFBB8965053BE13 /* Tidepad/Session/SessionKeeper.swift */; };
 		7D1C0A55E7B14F2A9C3E0001 /* Tidepad/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7D1C0A55E7B14F2A9C3E0002 /* Tidepad/Assets.xcassets */; };
+		7D1C0A55E7B14F2A9C3E0011 /* Tidepad/Terminal/TerminalAccessibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1C0A55E7B14F2A9C3E0012 /* Tidepad/Terminal/TerminalAccessibility.swift */; };
+		7D1C0A55E7B14F2A9C3E0013 /* Tidepad/Tidepad.help in Resources */ = {isa = PBXBuildFile; fileRef = 7D1C0A55E7B14F2A9C3E0014 /* Tidepad/Tidepad.help */; };
+		7D1C0A55E7B14F2A9C3E0021 /* Tidepad/Editor/DocumentPrinter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1C0A55E7B14F2A9C3E0022 /* Tidepad/Editor/DocumentPrinter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -147,6 +150,9 @@
 		BFEF662BDECE79049F9B6551 /* Tidepad/ClaudeCode/DiffReviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/ClaudeCode/DiffReviewWindow.swift; sourceTree = SOURCE_ROOT; };
 		E7649516DEFBB8965053BE13 /* Tidepad/Session/SessionKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Session/SessionKeeper.swift; sourceTree = SOURCE_ROOT; };
 		7D1C0A55E7B14F2A9C3E0002 /* Tidepad/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Tidepad/Assets.xcassets; sourceTree = SOURCE_ROOT; };
+		7D1C0A55E7B14F2A9C3E0012 /* Tidepad/Terminal/TerminalAccessibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Terminal/TerminalAccessibility.swift; sourceTree = SOURCE_ROOT; };
+		7D1C0A55E7B14F2A9C3E0014 /* Tidepad/Tidepad.help */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Tidepad/Tidepad.help; sourceTree = SOURCE_ROOT; };
+		7D1C0A55E7B14F2A9C3E0022 /* Tidepad/Editor/DocumentPrinter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Editor/DocumentPrinter.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -165,6 +171,9 @@
 			children = (
 				E7649516DEFBB8965053BE13 /* Tidepad/Session/SessionKeeper.swift */,
 				7D1C0A55E7B14F2A9C3E0002 /* Tidepad/Assets.xcassets */,
+				7D1C0A55E7B14F2A9C3E0014 /* Tidepad/Tidepad.help */,
+				7D1C0A55E7B14F2A9C3E0012 /* Tidepad/Terminal/TerminalAccessibility.swift */,
+				7D1C0A55E7B14F2A9C3E0022 /* Tidepad/Editor/DocumentPrinter.swift */,
 				6F002C93B43B96C6070872DC /* Tidepad/ClaudeCode/IDEProtocol.swift */,
 				AE672C1375E729F1BBF5A5E6 /* Tidepad/ClaudeCode/LineDiff.swift */,
 				C4FBB8EDF11028B39DD0C36D /* Tidepad/ClaudeCode/IDEServer.swift */,
@@ -296,6 +305,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7D1C0A55E7B14F2A9C3E0001 /* Tidepad/Assets.xcassets in Resources */,
+				7D1C0A55E7B14F2A9C3E0013 /* Tidepad/Tidepad.help in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -307,6 +317,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				45066EE01B57451EB780685F /* Tidepad/Session/SessionKeeper.swift in Sources */,
+				7D1C0A55E7B14F2A9C3E0011 /* Tidepad/Terminal/TerminalAccessibility.swift in Sources */,
+				7D1C0A55E7B14F2A9C3E0021 /* Tidepad/Editor/DocumentPrinter.swift in Sources */,
 				4F145E5A108841260159880A /* Tidepad/ClaudeCode/IDEProtocol.swift in Sources */,
 				2EBF3761F24C40C58FC32C8D /* Tidepad/ClaudeCode/LineDiff.swift in Sources */,
 				693F659DC26BF0C575D498E9 /* Tidepad/ClaudeCode/IDEServer.swift in Sources */,

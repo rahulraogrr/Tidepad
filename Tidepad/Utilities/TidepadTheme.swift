@@ -28,6 +28,7 @@ enum TidepadTheme {
     static let toolbarUndo = color(light: 0x547BA3, dark: 0x99B4D0)
     static let toolbarClipboard = color(light: 0x596D7E, dark: 0xB0BCC6)
     static let toolbarFind = color(light: 0x765F91, dark: 0xBAA5D2)
+    static let toolbarClose = color(light: 0x9E4F4A, dark: 0xD9A19C)
     static let bracketFill = color(light: 0xDDE8F4, dark: 0x354453)
     static let bracketBorder = color(light: 0x8AA9C8, dark: 0x6B8BAA)
     static let sidebarBackground = color(light: 0xF3F3F3, dark: 0x1B1B1B)

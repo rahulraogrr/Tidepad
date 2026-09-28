@@ -7,6 +7,9 @@ import AppKit
 /// The mouse selects text (drag, double-click for a word, triple-click for a line; ⌘C copies), unless
 /// the program asked for mouse events, as Claude Code, vim and less can: then clicks, drags and the
 /// scroll wheel go to the program, and holding ⌥ selects text instead, as in iTerm.
+///
+/// VoiceOver sees a text area, as in Terminal.app: it can read the visible lines, move through them
+/// by line, word and character, and it reads a command's output as it arrives.
 @MainActor final class TerminalView: NSView, @preconcurrency NSTextInputClient, NSMenuItemValidation {
     let screen: TerminalScreen
     /// Bytes for the shell: typed text, control keys, pasted text.
@@ -34,6 +37,10 @@ import AppKit
     var pasteboard = NSPasteboard.general
     /// The last cell reported to the program while dragging, so each cell is sent once.
     private var lastReportedCell: (column: Int, row: Int)?
+    /// VoiceOver: what output is new, when the user last typed, and whether an update is on its way.
+    private var outputTracker = TerminalOutputTracker()
+    private var lastTyped = Date.distantPast
+    private var accessibilityUpdatePending = false
 
     init(screen: TerminalScreen, font: NSFont) {
         self.screen = screen
@@ -91,6 +98,7 @@ import AppKit
         // A selection on the main screen doesn't apply to a full-screen program's screen, and back.
         if selectionAnchor != nil && selectionWasAlternate != screen.isAlternateScreen { clearSelection() }
         needsDisplay = true
+        scheduleAccessibilityUpdate()
     }
 
     // MARK: Drawing
@@ -255,6 +263,7 @@ import AppKit
     }
 
     private func typed(_ bytes: [UInt8]) {
+        lastTyped = Date()
         scrollOffset = 0
         needsDisplay = true
         send?(bytes)
@@ -584,4 +593,99 @@ import AppKit
     }
 
     func characterIndex(for point: NSPoint) -> Int { NSNotFound }
+
+    // MARK: Accessibility
+
+    /// At most four times a second while output streams: tells VoiceOver the text changed, and has it
+    /// read the new output (see TerminalOutputTracker).
+    private func scheduleAccessibilityUpdate() {
+        guard !accessibilityUpdatePending else { return }
+        accessibilityUpdatePending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            MainActor.assumeIsolated { self?.updateAccessibility() }
+        }
+    }
+
+    private func updateAccessibility() {
+        accessibilityUpdatePending = false
+        guard NSWorkspace.shared.isVoiceOverEnabled else { outputTracker.skip(in: screen); return }
+        NSAccessibility.post(element: self, notification: .valueChanged)
+        let typing = Date().timeIntervalSince(lastTyped) < 0.5
+        guard let output = outputTracker.newOutput(in: screen, afterTyping: typing), let window else { return }
+        NSAccessibility.post(element: window, notification: .announcementRequested,
+                             userInfo: [.announcement: output, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+    }
+
+    /// The visible text, as VoiceOver sees it.
+    private var accessibilityText: TerminalAccessibilityText { TerminalAccessibilityText(screen: screen, scrolledBack: scrollOffset) }
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityValue() -> Any? { accessibilityText.string }
+    override func accessibilityNumberOfCharacters() -> Int { accessibilityText.length }
+    override func accessibilityVisibleCharacterRange() -> NSRange { NSRange(location: 0, length: accessibilityText.length) }
+
+    /// The selection, or else the cursor as the insertion point.
+    override func accessibilitySelectedTextRange() -> NSRange {
+        let text = accessibilityText
+        let firstLine = screen.lineNumber(ofRow: 0, scrolledBack: scrollOffset)
+        func offset(_ position: TerminalPosition) -> Int {
+            text.offset(row: position.line - firstLine, column: position.column)
+        }
+        if let selection {
+            let start = offset(selection.start), end = offset(selection.end)
+            return NSRange(location: start, length: max(0, end - start))
+        }
+        guard scrollOffset == 0 else { return NSRange(location: 0, length: 0) }
+        return NSRange(location: text.offset(row: screen.cursorRow, column: screen.cursorColumn), length: 0)
+    }
+
+    override func accessibilitySelectedText() -> String? {
+        let range = accessibilitySelectedTextRange()
+        return (accessibilityText.string as NSString).substring(with: range)
+    }
+
+    override func accessibilityInsertionPointLineNumber() -> Int {
+        accessibilityText.row(containing: accessibilitySelectedTextRange().location)
+    }
+
+    override func accessibilityLine(for index: Int) -> Int { accessibilityText.row(containing: index) }
+    override func accessibilityRange(forLine line: Int) -> NSRange { accessibilityText.range(ofRow: line) }
+
+    override func accessibilityString(for range: NSRange) -> String? {
+        let string = accessibilityText.string as NSString
+        guard NSMaxRange(range) <= string.length else { return nil }
+        return string.substring(with: range)
+    }
+
+    override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
+        accessibilityString(for: range).map { NSAttributedString(string: $0, attributes: [.font: terminalFont]) }
+    }
+
+    /// The screen rectangle of a range: its cells on one row, or the full rows it spans.
+    override func accessibilityFrame(for range: NSRange) -> NSRect {
+        let text = accessibilityText
+        let (start, end) = text.cells(of: range)
+        var rect: NSRect
+        if start.row == end.row {
+            let width = CGFloat(max(1, end.column - start.column)) * cellWidth
+            rect = NSRect(x: x(start.column), y: inset + CGFloat(start.row) * cellHeight, width: width, height: cellHeight)
+        } else {
+            rect = NSRect(x: inset, y: inset + CGFloat(start.row) * cellHeight,
+                          width: CGFloat(screen.columns) * cellWidth, height: CGFloat(end.row - start.row + 1) * cellHeight)
+        }
+        guard let window else { return .zero }
+        return window.convertToScreen(convert(rect, to: nil))
+    }
+
+    /// The character at a point on the screen.
+    override func accessibilityRange(for point: NSPoint) -> NSRange {
+        guard let window else { return NSRange(location: NSNotFound, length: 0) }
+        let local = convert(window.convertPoint(fromScreen: point), from: nil)
+        let row = min(max(0, Int((local.y - inset) / cellHeight)), screen.rows - 1)
+        let column = max(0, Int((local.x - inset) / cellWidth))
+        let text = accessibilityText
+        let offset = text.offset(row: row, column: column)
+        let string = text.string as NSString
+        return offset < string.length ? string.rangeOfComposedCharacterSequence(at: offset) : NSRange(location: offset, length: 0)
+    }
 }

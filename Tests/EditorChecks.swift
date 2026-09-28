@@ -33,6 +33,29 @@ final class WebSocketInbox: @unchecked Sendable {
         while Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
     }
 
+    /// Printing: the whole text in the editor font, black on white, with the Light theme's syntax colours
+    /// and bold keywords, however far the editor has coloured it on screen.
+    @MainActor static func checkPrinting() {
+        let source = "let answer = 42 // the answer\n" + String(repeating: "print(answer)\n", count: 2_000) + "return \"done\""
+        let index = LineIndex()
+        index.rebuild(source)
+        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let text = DocumentPrinter.printableText(source as NSString, index: index, language: .swift, font: font, paragraph: .default)
+        precondition(text.string == source, "Printing keeps the text")
+        func colour(at offset: Int) -> NSColor? { text.attribute(.foregroundColor, at: offset, effectiveRange: nil) as? NSColor }
+        func isBold(at offset: Int) -> Bool {
+            (text.attribute(.font, at: offset, effectiveRange: nil) as? NSFont).map { NSFontManager.shared.traits(of: $0).contains(.boldFontMask) } ?? false
+        }
+        let keyword = SyntaxPalette.color(for: .keyword, language: .swift, dark: false)
+        precondition(colour(at: 0) == keyword && isBold(at: 0), "Keywords print in the Light theme's colour, bold")
+        precondition(colour(at: 4) == .black && !isBold(at: 4), "Plain text prints black")
+        let last = (source as NSString).range(of: "return", options: .backwards).location
+        precondition(colour(at: last) == keyword, "The end of a long document is coloured too")
+        let plain = DocumentPrinter.printableText(source as NSString, index: index, language: .plain, font: font, paragraph: .default)
+        precondition(plain.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor == .black, "Plain text files print black")
+        print("PASS printing: whole document, editor font, Light theme syntax colours and bold keywords")
+    }
+
     /// JSON keys and values, links (URLs and email addresses) and colouring past the old 1 MB limit.
     @MainActor static func checkLinksAndLargeFiles() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 920, height: 450),
@@ -155,6 +178,22 @@ final class WebSocketInbox: @unchecked Sendable {
         terminal.view.copy(nil)
         precondition(terminal.view.pasteboard.string(forType: .string)?.contains("tidepad-42") == true, "Select All and Copy")
         terminal.view.clearSelection()
+        // VoiceOver sees a text area with the visible lines, and the cursor as the insertion point.
+        let view = terminal.view
+        let value = view.accessibilityValue() as? String ?? ""
+        precondition(view.isAccessibilityElement() && view.accessibilityRole() == .textArea && value.contains("tidepad-42"),
+                     "VoiceOver reads the terminal:\n\(value)")
+        precondition(view.accessibilityLabel()?.hasPrefix("Terminal") == true && view.accessibilityNumberOfCharacters() == (value as NSString).length)
+        let outputLine = value.components(separatedBy: "\n").firstIndex { $0.hasSuffix("tidepad-42") } ?? -1
+        let lineRange = view.accessibilityRange(forLine: outputLine)
+        precondition(view.accessibilityString(for: lineRange)?.hasPrefix("tidepad-42") == true
+                     && view.accessibilityLine(for: lineRange.location) == outputLine, "Lines for VoiceOver")
+        let caret = view.accessibilitySelectedTextRange()
+        precondition(caret.length == 0 && view.accessibilityInsertionPointLineNumber() == terminal.screen.cursorRow, "The cursor is the insertion point")
+        let frame = view.accessibilityFrame(for: lineRange)
+        precondition(frame.width > 0 && frame.height > 0 && NSEqualRanges(view.accessibilityRange(for: NSPoint(x: frame.minX + 1, y: frame.midY)),
+                                                                         NSRange(location: lineRange.location, length: 1)),
+                     "Frames and points: \(frame), \(view.accessibilityRange(for: NSPoint(x: frame.minX + 1, y: frame.midY))) for \(lineRange)")
         terminal.view.send?(Array("pwd\r".utf8))
         let path = output.resolvingSymlinksInPath().path
         precondition(wait { allText().components(separatedBy: "\n").contains { $0.hasSuffix(path) } }, "The shell starts in the folder:\n\(allText())")
@@ -177,7 +216,7 @@ final class WebSocketInbox: @unchecked Sendable {
         terminal.close(first)
         precondition(terminal.sessions.isEmpty && !terminal.isVisible, "Closing the last tab hides the panel")
         window.contentView = nil
-        print("PASS terminal: login shell on a pseudo-terminal, command output, select and copy, working directory, tabs, exit")
+        print("PASS terminal: login shell on a pseudo-terminal, command output, select and copy, VoiceOver, working directory, tabs, exit")
     }
 
     /// The Claude Code connection end to end, with Foundation's WebSocket client in place of Claude Code:
@@ -418,6 +457,7 @@ final class WebSocketInbox: @unchecked Sendable {
         precondition(limited.textView.layoutManager?.temporaryAttributes(atCharacterIndex: 0, effectiveRange: nil)[.foregroundColor] == nil)
         precondition(limited.document.text == "let value = 42")
         checkLinksAndLargeFiles()
+        checkPrinting()
         checkSearchEditing()
         checkTextCommands()
         try checkExternalChanges(output: output)
@@ -547,8 +587,15 @@ final class WebSocketInbox: @unchecked Sendable {
         precondition(manager.documents.isEmpty && manager.selectedID == nil)
         manager.newDocument()
         manager.saveAll() // A blank Untitled tab has nothing to save and must not open a Save panel.
+        // New tabs take the first free Untitled name, so closed tabs' numbers are reused.
+        let names = DocumentManager()
+        names.newDocument(); names.newDocument()
+        precondition(names.documents.map(\.displayName) == ["Untitled", "Untitled 2", "Untitled 3"], "Untitled names: \(names.documents.map(\.displayName))")
+        names.documents.removeAll { $0.displayName == "Untitled 2" }
+        names.newDocument()
+        precondition(names.documents.last?.displayName == "Untitled 2", "A closed tab's number is reused")
         precondition(manager.documents.count == 1 && manager.selectedDocument?.fileURL == nil)
-        print("PASS Save All, Close Other Tabs, and Close All")
+        print("PASS Save All, Close Other Tabs, Close All, and Untitled names")
     }
 
     @MainActor static func checkScrolling(output: URL) throws {

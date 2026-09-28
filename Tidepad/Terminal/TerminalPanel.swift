@@ -28,6 +28,7 @@ import Observation
         view.sizeChanged = { [weak self] columns, rows in self?.shell?.resize(columns: columns, rows: rows) }
         screen.respond = { [weak self] bytes in self?.shell?.write(bytes) }
         screen.bell = { NSSound.beep() }
+        view.setAccessibilityLabel("Terminal, \(displayTitle)")
     }
 
     /// The tab's name: what the shell reports, or the shell's name and number.
@@ -70,7 +71,10 @@ import Observation
 
     private func received(_ data: Data) {
         screen.feed(data)
-        if screen.title != title { title = screen.title }
+        if screen.title != title {
+            title = screen.title
+            view.setAccessibilityLabel("Terminal, \(displayTitle)")
+        }
         view.outputArrived()
     }
 

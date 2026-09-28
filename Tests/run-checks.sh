@@ -10,7 +10,7 @@ xcrun swiftc "${flags[@]}" Tidepad/Models/EditorDocument.swift Tidepad/Documents
 build/SyntaxChecks
 xcrun swiftc "${flags[@]}" Tidepad/Editor/TextCommands.swift Tidepad/Editor/SQLFormatter.swift Tests/TextCommandChecks.swift -o build/TextCommandChecks
 build/TextCommandChecks
-xcrun swiftc -O "${flags[@]}" Tidepad/Terminal/TerminalScreen.swift Tests/TerminalChecks.swift -o build/TerminalChecks
+xcrun swiftc -O "${flags[@]}" Tidepad/Terminal/TerminalScreen.swift Tidepad/Terminal/TerminalAccessibility.swift Tests/TerminalChecks.swift -o build/TerminalChecks
 build/TerminalChecks
 xcrun swiftc "${flags[@]}" Tidepad/ClaudeCode/IDEProtocol.swift Tidepad/ClaudeCode/LineDiff.swift Tests/IDEChecks.swift -o build/IDEChecks
 build/IDEChecks

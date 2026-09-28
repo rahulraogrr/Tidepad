@@ -6,7 +6,6 @@ import Observation
     var selectedID: UUID?
     var recentFiles: [URL] = NSDocumentController.shared.recentDocumentURLs
     private let files = TextFileService()
-    private var untitledCount = 0
     var selectedDocument: EditorDocument? { documents.first { $0.id == selectedID } }
     @ObservationIgnored private var presenters: [UUID: DocumentFilePresenter] = [:]
     /// Documents whose files changed on disk and still need the user's decision.
@@ -37,9 +36,17 @@ import Observation
         reviewExternalChanges()
     }
 
+    /// The first free name of "Untitled", "Untitled 2", "Untitled 3"…, so closed tabs' numbers are
+    /// reused, as in TextEdit and Notepad++.
+    static func untitledName(notIn names: Set<String>) -> String {
+        var number = 1
+        while names.contains(number == 1 ? "Untitled" : "Untitled \(number)") { number += 1 }
+        return number == 1 ? "Untitled" : "Untitled \(number)"
+    }
+
     func newDocument() {
-        untitledCount += 1
-        let document = EditorDocument(displayName: untitledCount == 1 ? "Untitled" : "Untitled \(untitledCount)")
+        let names = Set(documents.filter { $0.fileURL == nil }.map(\.displayName))
+        let document = EditorDocument(displayName: Self.untitledName(notIn: names))
         documents.append(document)
         selectedID = document.id
     }
@@ -98,7 +105,6 @@ import Observation
             watch(document)
             if index == selected { chosen = document }
         }
-        untitledCount = max(untitledCount, documents.filter { $0.fileURL == nil }.count)
         if let chosen { selectedID = chosen.id }
         else if !documents.contains(where: { $0.id == selectedID }) { selectedID = documents.last?.id }
     }

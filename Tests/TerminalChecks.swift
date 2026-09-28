@@ -152,6 +152,42 @@ import Foundation
         s.clear()
         precondition(s.scrollback.isEmpty && texts(s) == ["3", ""] && s.cursorRow == 0, "Clear")
 
+        // What VoiceOver reads: rows as lines, offsets and cells, wide characters.
+        s = screen(10, 3, "ab  \r\n中x")
+        var a = TerminalAccessibilityText(screen: s)
+        precondition(a.string == "ab\n中x\n" && a.rowStarts == [0, 3, 6] && a.length == 6, "Accessibility text: \(a.string.debugDescription)")
+        precondition(a.range(ofRow: 0) == NSRange(location: 0, length: 3) && a.range(ofRow: 2) == NSRange(location: 6, length: 0))
+        precondition(a.row(containing: 2) == 0 && a.row(containing: 3) == 1 && a.row(containing: 6) == 2)
+        precondition(a.offset(row: 1, column: 0) == 3 && a.offset(row: 1, column: 2) == 4 && a.offset(row: 1, column: 1) == 4)
+        precondition(a.offset(row: 1, column: 9) == 5 && a.offset(row: 7, column: 0) == 6)
+        let first = a.cell(at: 3), after = a.cell(at: 4), end = a.cell(at: 5)
+        precondition(first.row == 1 && first.column == 0 && after.column == 2 && end.column == 3, "Cells: \(first) \(after) \(end)")
+        let rowCells = a.cells(of: a.range(ofRow: 0)), both = a.cells(of: NSRange(location: 1, length: 3))
+        precondition(rowCells.start.row == 0 && rowCells.end.row == 0 && rowCells.end.column == 2, "A line with its line feed stays on its row: \(rowCells)")
+        precondition(both.start.row == 0 && both.end.row == 1 && both.end.column == 2, "Across rows: \(both)")
+        s = screen(10, 2, "1\r\n2\r\n3")
+        a = TerminalAccessibilityText(screen: s, scrolledBack: 1)
+        precondition(a.string == "1\n2", "Scrolled back: \(a.string.debugDescription)")
+
+        // New output for VoiceOver: a command's output and prompt, not the echo of typed keys.
+        s = screen(20, 4, "$ ")
+        var tracker = TerminalOutputTracker()
+        precondition(tracker.newOutput(in: s, afterTyping: false) == nil, "Nothing before the first look")
+        s.feed("ls")
+        precondition(tracker.newOutput(in: s, afterTyping: true) == nil, "Echo is skipped")
+        s.feed("\r\nfile1  file2\r\n$ ")
+        precondition(tracker.newOutput(in: s, afterTyping: true) == "file1  file2\n$", "Output and prompt")
+        precondition(tracker.newOutput(in: s, afterTyping: false) == nil, "Read once")
+        s.feed("done")
+        precondition(tracker.newOutput(in: s, afterTyping: false) == "done", "Output on the prompt line")
+        s.feed("\(esc)[?1049h\(esc)[Hvim")
+        precondition(tracker.newOutput(in: s, afterTyping: false) == nil, "Full-screen programs aren't read")
+        s.feed("\(esc)[?1049l")
+        _ = tracker.newOutput(in: s, afterTyping: false)
+        s.feed(String(repeating: "line\r\n", count: 100) + "end")
+        let long = tracker.newOutput(in: s, afterTyping: false) ?? ""
+        precondition(long.hasSuffix("end") && long.split(separator: "\n").count <= TerminalOutputTracker.maximumLines + 1, "Long output is read from its end")
+
         // Throughput: 10 MB of coloured output.
         let line = "\(esc)[32mgreen\(esc)[0m plain text with some words 中文 \(esc)[1mbold\(esc)[0m\r\n"
         let chunk = Array(String(repeating: line, count: 1000).utf8)
@@ -160,6 +196,6 @@ import Foundation
         var fed = 0
         while fed < 10_000_000 { big.feed(chunk); fed += chunk.count }
         let seconds = Date().timeIntervalSince(start)
-        print(String(format: "Terminal checks passed: text, wrapping, cursor, erasing, scroll regions, colours, Unicode, alternate screen, modes, mouse modes, selection text and words, replies, resizing. 10 MB of output in %.2f s.", seconds))
+        print(String(format: "Terminal checks passed: text, wrapping, cursor, erasing, scroll regions, colours, Unicode, alternate screen, modes, mouse modes, selection text and words, replies, resizing, VoiceOver text and new output. 10 MB of output in %.2f s.", seconds))
     }
 }

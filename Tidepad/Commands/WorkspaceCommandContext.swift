@@ -41,6 +41,11 @@ import Observation
         if let document { documents.save(document, saveAs: asNew) }
     }
     func closeTab() { if let document { documents.close(document) } }
+    /// File ▸ Print (see DocumentPrinter).
+    func printDocument() {
+        guard let session else { return }
+        DocumentPrinter.print(session, font: EditorFontProvider.font(configuration: preferences.displayOptions.font), window: window)
+    }
 
     func find(_ action: NSTextFinder.Action) {
         switch action {
