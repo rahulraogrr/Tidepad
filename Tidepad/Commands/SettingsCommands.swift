@@ -3,7 +3,6 @@ import SwiftUI
 struct SettingsCommands: Commands {
     let context: WorkspaceCommandContext
     var body: some Commands {
-        CommandGroup(replacing: .appSettings) {}
         CommandMenu("Settings") { SettingsMenuItems(context: context) }
     }
 }
@@ -12,9 +11,8 @@ private struct SettingsMenuItems: View {
     let context: WorkspaceCommandContext
     var body: some View {
         Group {
-            Button("Preferences…") {
-                context.placeholder("Tidepad Preferences", detail: "A full preferences window is planned. For now, use the Settings menu to choose a theme, editor font, or tab size. Tidepad remembers these choices, and the open tabs with any unsaved text, between launches.")
-            }.keyboardShortcut(",")
+            // Opens the same window as Tidepad ▸ Settings… (⌘,), for Notepad++ users who look here.
+            SettingsLink { Text("Preferences…") }
             Menu("Style / Theme") {
                 ForEach(EditorAppearance.allCases, id: \.self) { appearance in
                     Toggle(appearance.rawValue, isOn: Binding(get: { context.preferences.appearance == appearance }, set: { _ in context.setAppearance(appearance) }))

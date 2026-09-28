@@ -10,6 +10,8 @@ import AppKit
         }
         .defaultSize(width: 1000, height: 700)
         .commands { TidepadCommands(context: delegate.commandContext) }
+        // Tidepad ▸ Settings… (⌘,).
+        Settings { PreferencesView(context: delegate.commandContext) }
     }
 }
 
