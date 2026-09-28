@@ -74,6 +74,7 @@
 		F234D5355E269B1A5A567EF1 /* Tidepad/ClaudeCode/ClaudeCodeConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2416E85626247497D1FC96B /* Tidepad/ClaudeCode/ClaudeCodeConnection.swift */; };
 		A655EFE5DE9D2FC0C6CD9F44 /* Tidepad/ClaudeCode/DiffReviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFEF662BDECE79049F9B6551 /* Tidepad/ClaudeCode/DiffReviewWindow.swift */; };
 		45066EE01B57451EB780685F /* Tidepad/Session/SessionKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7649516DEFBB8965053BE13 /* Tidepad/Session/SessionKeeper.swift */; };
+		7D1C0A55E7B14F2A9C3E0001 /* Tidepad/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7D1C0A55E7B14F2A9C3E0002 /* Tidepad/Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -145,6 +146,7 @@
 		D2416E85626247497D1FC96B /* Tidepad/ClaudeCode/ClaudeCodeConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/ClaudeCode/ClaudeCodeConnection.swift; sourceTree = SOURCE_ROOT; };
 		BFEF662BDECE79049F9B6551 /* Tidepad/ClaudeCode/DiffReviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/ClaudeCode/DiffReviewWindow.swift; sourceTree = SOURCE_ROOT; };
 		E7649516DEFBB8965053BE13 /* Tidepad/Session/SessionKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Session/SessionKeeper.swift; sourceTree = SOURCE_ROOT; };
+		7D1C0A55E7B14F2A9C3E0002 /* Tidepad/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Tidepad/Assets.xcassets; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -162,6 +164,7 @@
 			isa = PBXGroup;
 			children = (
 				E7649516DEFBB8965053BE13 /* Tidepad/Session/SessionKeeper.swift */,
+				7D1C0A55E7B14F2A9C3E0002 /* Tidepad/Assets.xcassets */,
 				6F002C93B43B96C6070872DC /* Tidepad/ClaudeCode/IDEProtocol.swift */,
 				AE672C1375E729F1BBF5A5E6 /* Tidepad/ClaudeCode/LineDiff.swift */,
 				C4FBB8EDF11028B39DD0C36D /* Tidepad/ClaudeCode/IDEServer.swift */,
@@ -249,6 +252,7 @@
 			buildPhases = (
 				BCE16DD0260827ECF338C787 /* Sources */,
 				7561BFB015D8F536760CB671 /* Frameworks */,
+				7D1C0A55E7B14F2A9C3E0003 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -285,6 +289,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7D1C0A55E7B14F2A9C3E0003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7D1C0A55E7B14F2A9C3E0001 /* Tidepad/Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		BCE16DD0260827ECF338C787 /* Sources */ = {
@@ -367,6 +382,7 @@
 		639A7CA24D39909E713B47F7 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_STYLE = Automatic;
@@ -387,6 +403,7 @@
 		7082CC0B6FC1282FCEABD07A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_STYLE = Automatic;
