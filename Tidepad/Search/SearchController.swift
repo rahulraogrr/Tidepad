@@ -122,7 +122,8 @@ actor CompiledSearchCache {
     }
 
     /// Find Next/Previous in the large-file view: a byte search on the mapped file, in the background
-    /// (see LargeTextFile.find). Normal and Extended modes, with Match case and Wrap around.
+    /// (see LargeTextBuffer.find), on a snapshot so editing can go on. Normal and Extended modes, with
+    /// Match case and Wrap around.
     private func navigateLarge(_ view: LargeTextView, backwards: Bool) {
         guard query.mode != .regex, !query.wholeWord else {
             message = "Regular expressions and whole-word search aren't available for large files yet."; return
@@ -130,19 +131,21 @@ actor CompiledSearchCache {
         let text: String
         do { text = query.mode == .extended ? try SearchEngine.decode(query.text) : query.text } catch { message = error.localizedDescription; return }
         guard !text.isEmpty else { return }
-        let file = view.file, pattern = Array(text.utf8), selection = view.selectedRange
+        let buffer = view.buffer, snapshot = buffer.snapshot(), pattern = Array(text.utf8), selection = view.selectedBytes
         let matchCase = query.matchCase, wrap = query.wrap
         cancelDocumentSearch(); let token = generation; busy = true; remember()
         message = "Searching…"
         task = Task { [weak self] in
             let worker = Task.detached(priority: .userInitiated) {
-                file.find(pattern, from: backwards ? selection.lowerBound : selection.upperBound, backwards: backwards,
+                snapshot.find(pattern, from: backwards ? selection.lowerBound : selection.upperBound, backwards: backwards,
                           matchCase: matchCase, wrap: wrap, cancelled: { Task.isCancelled })
             }
             let match = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard let self, self.generation == token else { return }
             self.busy = false
-            guard !Task.isCancelled, view.file === file else { return }
+            guard !Task.isCancelled, view.buffer === buffer, buffer.revision == snapshot.revision else {
+                self.message = "Search discarded: the document changed."; return
+            }
             if let match { view.select(match); self.message = "Match found." } else { self.message = "No match found." }
         }
     }
@@ -186,7 +189,7 @@ actor CompiledSearchCache {
     }
 
     func replace(all: Bool = false, inSelection: Bool = false, findNext: Bool = false) {
-        if context?.document?.isLarge == true { message = "Large files are read-only in this version of Tidepad."; return }
+        if context?.document?.isLarge == true { message = "Replace isn't available for large files yet."; return }
         guard let context, let session = context.session else { return }
         let document = session.document, snapshot = SearchSnapshot(text: session.document.text, revision: session.document.revision)
         let selection = session.textView.selectedRange()

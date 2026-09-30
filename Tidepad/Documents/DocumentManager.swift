@@ -119,16 +119,6 @@ import Observation
     }
 
     @discardableResult func save(_ document: EditorDocument, saveAs: Bool = false) -> Bool {
-        if document.isLarge {
-            // Read-only for now: there's nothing to save, and Save As would copy 500 MB of text.
-            if saveAs {
-                let alert = NSAlert()
-                alert.messageText = "Save As isn't available for large files yet."
-                alert.informativeText = "Files larger than \(LargeTextFile.threshold / 1_048_576) MB open read-only in this version of Tidepad."
-                alert.runModal()
-            }
-            return !document.hasUnsavedChanges
-        }
         var destination = document.fileURL
         if saveAs || destination == nil {
             let panel = NSSavePanel()
@@ -157,6 +147,11 @@ import Observation
             return false
         }
         let moved = document.fileURL?.standardizedFileURL != destination.standardizedFileURL
+        // A large file's edits now live in the saved file: start again from a clone of it, so pieces
+        // (and memory) don't keep growing. Undo still works: its pieces keep the old sources alive.
+        if let buffer = document.largeBuffer, let saved = try? LargeTextFile(url: destination), saved.count == buffer.count {
+            buffer.rebase(on: saved)
+        }
         document.markSaved(at: destination)
         document.diskStamp = FileStamp(destination)
         pendingExternalChanges.remove(document.id)
@@ -344,7 +339,7 @@ import Observation
         guard let url = document.fileURL else { return }
         if document.isLarge {
             // Map a fresh clone of the changed file; the view keeps its place (see LargeTextView.replaceFile).
-            document.largeFile = try LargeTextFile(url: url)
+            document.largeBuffer = LargeTextBuffer(file: try LargeTextFile(url: url))
             document.diskStamp = FileStamp(url)
             pendingExternalChanges.remove(document.id)
             return

@@ -61,7 +61,7 @@ enum OpenedFile: Sendable {
             let document = EditorDocument(fileURL: file.url, displayName: file.url.lastPathComponent, text: "",
                                           encoding: .utf8, lineEnding: ending)
             document.hasByteOrderMark = file.hasByteOrderMark
-            document.largeFile = file
+            document.largeBuffer = LargeTextBuffer(file: file)
             document.diskStamp = FileStamp(file.url)
             document.lineCount = file.lineCount
             document.utf16Length = file.count - file.contentStart
@@ -122,8 +122,8 @@ struct TextFileService {
     }
 
     func write(_ document: EditorDocument, to url: URL) throws {
-        // A large file's text isn't held in `text`; saving it comes with editing in the large-file view.
-        guard !document.isLarge else { throw CocoaError(.fileWriteUnknown) }
+        // A large file is streamed from its pieces, never held as one String (see LargeTextBuffer.write).
+        if let buffer = document.largeBuffer { try buffer.write(to: url); return }
         guard var data = document.text.data(using: document.encoding, allowLossyConversion: false) else {
             throw CocoaError(.fileWriteInapplicableStringEncoding)
         }

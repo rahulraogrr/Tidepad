@@ -47,34 +47,87 @@ final class WebSocketInbox: @unchecked Sendable {
         guard case .large(let file) = try TextFileService().open(url) else { fatalError("A large file must open in the large-file view") }
         let openTime = Date().timeIntervalSince(started) * 1000
         let document = OpenedFile.large(file).makeDocument()
+        guard let buffer = document.largeBuffer else { fatalError("No buffer") }
         precondition(document.isLarge && document.text.isEmpty && document.lineCount == file.lineCount, "Large document")
-        let view = LargeTextView(document: document, file: file, options: EditorDisplayOptions())
+        let view = LargeTextView(document: document, buffer: buffer, options: EditorDisplayOptions())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = view.scrollView
         view.pasteboard = NSPasteboard(name: NSPasteboard.Name("TidepadLargeChecks"))
         window.makeFirstResponder(view)
         window.displayIfNeeded()
         precondition(view.goToLine(12_346) && document.cursorLine == 12_346 && document.cursorColumn == 1, "Go to Line")
-        precondition(!view.goToLine(0) && !view.goToLine(file.lineCount + 1), "Go to Line bounds")
+        precondition(!view.goToLine(0) && !view.goToLine(buffer.lineCount + 1), "Go to Line bounds")
         view.moveToEndOfLine(nil)
-        let line = file.lineRange(12_345)
-        precondition(view.selectedRange == line.upperBound..<line.upperBound && document.cursorColumn == file.characterCount(in: line) + 1, "End of line")
+        let line = buffer.lineRange(12_345)
+        precondition(view.selectedBytes == line.upperBound..<line.upperBound && document.cursorColumn == buffer.characterCount(in: line) + 1, "End of line")
         view.moveToBeginningOfLineAndModifySelection(nil)
         view.copy(nil)
         precondition(view.pasteboard.string(forType: .string) == "2026-09-30 12:00:00 INFO request 2345 café 中文 status=200", "Select and copy: \(view.pasteboard.string(forType: .string) ?? "")")
         view.moveDown(nil)
         precondition(document.cursorLine == 12_347, "Move down")
         view.moveToEndOfDocument(nil)
-        precondition(document.cursorLine == file.lineCount && view.selectedRange == file.count..<file.count, "End of document")
+        precondition(document.cursorLine == buffer.lineCount && view.selectedBytes == buffer.count..<buffer.count, "End of document")
         window.displayIfNeeded()
-        let match = file.find(Array("request 9999 café".utf8), from: 0)!
+        let match = buffer.find(Array("request 9999 café".utf8), from: 0)!
         view.select(match)
-        precondition(document.cursorLine == 10_000 && view.selectedRange == match, "Reveal a match")
-        view.insertText("x")
-        precondition(document.lineCount == file.lineCount && !document.hasUnsavedChanges, "Read-only")
+        precondition(document.cursorLine == 10_000 && view.selectedBytes == match, "Reveal a match")
+
+        // Editing: typing (one undo step), Return, delete, paste, undo back to saved, redo, save.
+        let lines = buffer.lineCount, size = buffer.count
+        let start = buffer.lineStart(5)
+        view.select(start..<start)
+        let typeStarted = Date()
+        for character in "Tidepad " { view.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0)) }
+        let typingTime = Date().timeIntervalSince(typeStarted) * 1000 / 8
+        precondition(buffer.text(in: buffer.lineRange(5)).hasPrefix("Tidepad 2026-09-30") && document.hasUnsavedChanges, "Typing")
+        pump(0.01) // Undo groups close at the end of each event, as when typing by hand.
+        view.moveLeft(nil); view.moveRight(nil) // Moving the caret ends the typing step.
+        view.insertNewline(nil)
+        pump(0.01)
+        precondition(buffer.lineCount == lines + 1 && document.cursorLine == 7 && document.cursorColumn == 1, "Return")
+        view.deleteBackward(nil)
+        pump(0.01)
+        precondition(buffer.lineCount == lines && buffer.text(in: buffer.lineRange(5)).hasPrefix("Tidepad 2026"), "Delete")
+        view.pasteboard.clearContents()
+        view.pasteboard.setString("pasted\nlines\n", forType: .string)
+        view.paste(nil)
+        pump(0.01)
+        precondition(buffer.lineCount == lines + 2 && buffer.text(in: buffer.lineRange(6)) == "lines", "Paste")
+        let undo = view.undoManager!
+        undo.undo() // the paste
+        precondition(buffer.lineCount == lines, "Undo paste")
+        undo.undo() // Delete
+        undo.undo() // Return
+        undo.undo() // the typing, as one step
+        precondition(buffer.count == size && buffer.text(in: buffer.lineRange(5)).hasPrefix("2026-09-30") && !document.hasUnsavedChanges,
+                     "Undo back to the saved text clears the unsaved state")
+        undo.redo()
+        pump(0.01)
+        precondition(buffer.text(in: buffer.lineRange(5)).hasPrefix("Tidepad 2026") && document.hasUnsavedChanges, "Redo")
+        // Input method composition: marked text shown in place, committed as one undo step.
+        view.setMarkedText("ｔ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        precondition(view.hasMarkedText() && view.markedRange().length == 1, "Marked text")
+        view.setMarkedText("テ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        view.insertText("テ", replacementRange: NSRange(location: NSNotFound, length: 0))
+        precondition(!view.hasMarkedText() && buffer.text(in: buffer.lineRange(5)).hasPrefix("Tidepad テ2026"), "Committed composition")
+        pump(0.01)
+        undo.undo()
+        precondition(buffer.text(in: buffer.lineRange(5)).hasPrefix("Tidepad 2026"), "Undo composition")
+        // Save: streamed, then the buffer starts again from the saved file; undo still works after.
+        let saveStarted = Date()
+        try TextFileService().write(document, to: url)
+        let saveTime = Date().timeIntervalSince(saveStarted) * 1000
+        let saved = try Data(contentsOf: url)
+        precondition(saved.count == buffer.count && String(decoding: saved.prefix(buffer.lineStart(6)), as: UTF8.self).components(separatedBy: "\n")[5].hasPrefix("Tidepad 2026"), "Saved")
+        buffer.rebase(on: try LargeTextFile(url: url))
+        document.markSaved(at: url)
+        precondition(buffer.pieces.count == 1 && !document.hasUnsavedChanges, "Re-based after saving")
+        undo.undo()
+        precondition(buffer.text(in: buffer.lineRange(5)).hasPrefix("2026-09-30") && document.hasUnsavedChanges, "Undo after saving")
+        window.displayIfNeeded()
         window.contentView = nil
-        print(String(format: "PASS large file: %d MB opened in %.0f ms (%@), %d lines, Go to Line, moves, selection, Copy, read-only",
-                     file.count >> 20, openTime, file.isCloned ? "APFS clone" : "read into memory", file.lineCount))
+        print(String(format: "PASS large file: %d MB opened in %.0f ms (%@), %d lines, Go to Line, selection, Copy, typing (%.2f ms a key), Return, delete, paste, input methods, undo/redo, save in %.0f ms",
+                     file.count >> 20, openTime, file.isCloned ? "APFS clone" : "read into memory", file.lineCount, typingTime, saveTime))
         try? FileManager.default.removeItem(at: url)
     }
 

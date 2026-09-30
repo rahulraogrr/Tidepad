@@ -262,85 +262,29 @@ final class LargeTextFile: @unchecked Sendable {
         return start..<end
     }
 
-    // MARK: Find
+    // MARK: Line breaks, for the edit buffer
 
-    /// The first match of `pattern` at or after `offset`, or the last match ending at or before it when
-    /// `backwards`, wrapping round the file when `wrap`. ASCII letters match either case unless
-    /// `matchCase`. Byte search on the mapped file: no text is decoded.
-    func find(_ pattern: [UInt8], from offset: Int, backwards: Bool = false, matchCase: Bool = true, wrap: Bool = true,
-              cancelled: () -> Bool = { false }) -> Range<Int>? {
-        guard !pattern.isEmpty, pattern.count <= count - contentStart else { return nil }
-        let offset = min(max(contentStart, offset), count)
-        if backwards {
-            if let match = lastMatch(pattern, before: offset, after: contentStart, matchCase: matchCase, cancelled: cancelled) { return match }
-            return wrap ? lastMatch(pattern, before: count, after: offset, matchCase: matchCase, cancelled: cancelled) : nil
-        }
-        if let match = firstMatch(pattern, from: offset, to: count, matchCase: matchCase, cancelled: cancelled) { return match }
-        return wrap ? firstMatch(pattern, from: contentStart, to: min(count, offset + pattern.count - 1), matchCase: matchCase, cancelled: cancelled) : nil
+    /// The line-break byte this file's lines end with (LF, or CR in CR-only files).
+    var lineBreakByte: UInt8 { breakByte }
+}
+
+/// Where a LargeTextBuffer's pieces point: the file, or a block of added text. Both stay at fixed
+/// addresses for their lifetime, so pieces can point into them.
+protocol LargeTextSource: AnyObject, Sendable {
+    var base: UnsafePointer<UInt8> { get }
+    /// Line-break bytes in a range of this source.
+    func breaks(in range: Range<Int>, byte: UInt8) -> Int
+    /// The offset of the `number`th line-break byte at or after `start` (1-based).
+    func breakOffset(_ number: Int, from start: Int, byte: UInt8) -> Int
+}
+
+extension LargeTextFile: LargeTextSource {
+    /// Through the sparse index: the line numbers of the two ends.
+    func breaks(in range: Range<Int>, byte: UInt8) -> Int {
+        guard !range.isEmpty else { return 0 }
+        return line(containing: range.upperBound) - line(containing: range.lowerBound)
     }
-
-    private static func lowercased(_ byte: UInt8) -> UInt8 { byte >= 0x41 && byte <= 0x5A ? byte | 0x20 : byte }
-
-    /// The first match wholly inside `start..<end`.
-    private func firstMatch(_ pattern: [UInt8], from start: Int, to end: Int, matchCase: Bool, cancelled: () -> Bool) -> Range<Int>? {
-        let n = pattern.count
-        guard end - start >= n else { return nil }
-        if matchCase {
-            return pattern.withUnsafeBytes { needle -> Range<Int>? in
-                var from = start
-                while from <= end - n {
-                    // In blocks of 64 MB, so a search can be cancelled.
-                    let blockEnd = min(end, from + 64 * 1_048_576 + n - 1)
-                    if let hit = memmem(base + from, blockEnd - from, needle.baseAddress!, n) {
-                        let found = UnsafeRawPointer(hit) - UnsafeRawPointer(base)
-                        return found..<(found + n)
-                    }
-                    if cancelled() { return nil }
-                    from = blockEnd - n + 1
-                }
-                return nil
-            }
-        }
-        let lower = pattern.map(Self.lowercased)
-        let first = lower[0], firstUpper = first >= 0x61 && first <= 0x7A ? first - 0x20 : first
-        let last = end - n // The last place a match can start.
-        /// The next place `byte` appears at or after `from`, or Int.max.
-        func next(_ byte: UInt8, from: Int) -> Int {
-            guard from <= last, let hit = memchr(base + from, Int32(byte), last + 1 - from) else { return .max }
-            return UnsafeRawPointer(hit) - UnsafeRawPointer(base)
-        }
-        // The next place the first byte appears in each case, each found again only once passed.
-        var nextLower = next(first, from: start)
-        var nextUpper = first == firstUpper ? Int.max : next(firstUpper, from: start)
-        var checked = 0
-        while true {
-            let candidate = min(nextLower, nextUpper)
-            guard candidate <= last else { return nil }
-            var k = 1
-            while k < n && Self.lowercased(base[candidate + k]) == lower[k] { k += 1 }
-            if k == n { return candidate..<(candidate + n) }
-            if candidate == nextLower { nextLower = next(first, from: candidate + 1) }
-            if candidate == nextUpper { nextUpper = next(firstUpper, from: candidate + 1) }
-            checked += 1
-            if checked % 1_000_000 == 0 && cancelled() { return nil }
-        }
-    }
-
-    /// The last match ending at or before `end` and starting at or after `start`, searching back in blocks.
-    private func lastMatch(_ pattern: [UInt8], before end: Int, after start: Int, matchCase: Bool, cancelled: () -> Bool) -> Range<Int>? {
-        let n = pattern.count, block = 4 * 1_048_576
-        var blockEnd = end
-        while blockEnd - start >= n {
-            let blockStart = max(start, blockEnd - block)
-            var last: Range<Int>?, from = blockStart
-            while let match = firstMatch(pattern, from: from, to: blockEnd, matchCase: matchCase, cancelled: cancelled) {
-                last = match
-                from = match.lowerBound + 1
-            }
-            if let last { return last }
-            if cancelled() || blockStart == start { return nil }
-            blockEnd = blockStart + n - 1
-        }
-        return nil
+    func breakOffset(_ number: Int, from start: Int, byte: UInt8) -> Int {
+        lineStart(line(containing: start) + number) - 1
     }
 }

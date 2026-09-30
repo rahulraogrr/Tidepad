@@ -102,7 +102,8 @@ import Combine
 
     @objc private func viewportChanged() {
         ruler.needsDisplay = true
-        textView.setNeedsDisplay(textView.visibleRect)
+        // No full redraw here: the clip view draws only the newly shown strip, and colour changes
+        // invalidate their own text's display.
         highlighter?.renderVisibleText()
     }
 
@@ -258,9 +259,9 @@ import Combine
     func existingSession(for document: EditorDocument) -> EditorSession? { sessions[document.id] }
     private var largeViews: [UUID: LargeTextView] = [:]
     /// The large-file view for a large file's tab, created on first use and kept while the tab is open.
-    func largeView(for document: EditorDocument, file: LargeTextFile, options: EditorDisplayOptions) -> LargeTextView {
+    func largeView(for document: EditorDocument, buffer: LargeTextBuffer, options: EditorDisplayOptions) -> LargeTextView {
         if let view = largeViews[document.id] { return view }
-        let view = LargeTextView(document: document, file: file, options: options)
+        let view = LargeTextView(document: document, buffer: buffer, options: options)
         largeViews[document.id] = view
         return view
     }

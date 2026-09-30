@@ -88,7 +88,10 @@ import AppKit
         var keep = Set<String>()
         var succeeded = true
         for document in manager.documents {
-            let needsBackup = document.hasUnsavedChanges || (document.fileURL == nil && !document.text.isEmpty)
+            // Unsaved edits to a large file can't be backed up as text (that would be the whole file):
+            // quitting then asks whether to save them.
+            if document.isLarge && document.hasUnsavedChanges { succeeded = false }
+            let needsBackup = !document.isLarge && (document.hasUnsavedChanges || (document.fileURL == nil && !document.text.isEmpty))
             guard document.fileURL != nil || needsBackup else { continue } // A blank Untitled tab has nothing to keep.
             var backup: String?
             if needsBackup {

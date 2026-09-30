@@ -15,14 +15,22 @@ import AppKit
     /// The painted text no longer matches what's shown (edit, language, font or appearance change).
     private var stale = true
     private var paintedRange = NSRange(location: 0, length: 0)
-    /// Whether the painted range currently contains bold fonts that clearPaint must reset.
-    private var boldApplied = false
+    /// Whether any bold font has been put in the text (so a language change must reset fonts).
+    private var boldUsed = false
     /// Links in the painted text, for ⌘-click.
     private var links: [(range: NSRange, url: URL)] = []
     private let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     /// The regular editor font; keywords use its bold variant from NSFontManager.
     var baseFont: NSFont { didSet { boldFont = Self.bold(baseFont); stale = true } }
     private var boldFont: NSFont
+
+    /// Time spent in each part of rendering, in nanoseconds (read by Tests/EditorPerformance.swift).
+    static var timings: [String: UInt64] = [:]
+    private static func timed<T>(_ part: String, _ body: () -> T) -> T {
+        let start = DispatchTime.now().uptimeNanoseconds
+        defer { timings[part, default: 0] += DispatchTime.now().uptimeNanoseconds - start }
+        return body()
+    }
 
     init(textView: NSTextView, lineIndex: LineIndex, baseFont: NSFont, policy: SyntaxPolicy = SyntaxPolicy()) {
         self.textView = textView
@@ -100,45 +108,98 @@ import AppKit
         rendering = true
         defer { rendering = false }
         let text = storage.mutableString
-        let tokens = engine.tokens(in: range, index: lineIndex, text: text)
-
-        // Bold is a real font attribute on the text, as in Notepad++: the bold face of the editor font
-        // from NSFontManager. Attribute-only storage changes don't register undo, dirty the document or
-        // change the saved text, and monospaced bold faces keep the same advances, so lines don't
-        // reflow. Resetting the previous bold runs and applying the new ones is one storage transaction.
-        var bold: [NSRange] = []
-        for token in tokens where SyntaxPalette.isBold(token.kind) {
-            if let last = bold.last, NSMaxRange(last) == token.range.location {
-                bold[bold.count - 1].length += token.range.length // Merge adjacent runs, e.g. ">=".
-            } else { bold.append(token.range) }
-        }
-        let applyBold = !bold.isEmpty && boldFont != baseFont
         let previous = NSIntersectionRange(paintedRange, NSRange(location: 0, length: storage.length))
-        if (boldApplied && previous.length > 0) || applyBold {
-            storage.beginEditing()
-            if boldApplied && previous.length > 0 { storage.addAttribute(.font, value: baseFont, range: previous) }
-            if applyBold { for boldRange in bold { storage.addAttribute(.font, value: boldFont, range: boldRange) } }
-            storage.endEditing()
-        }
-        boldApplied = applyBold
 
-        if previous.length > 0 {
-            layout.removeTemporaryAttribute(.foregroundColor, forCharacterRange: previous)
-            layout.removeTemporaryAttribute(.underlineStyle, forCharacterRange: previous)
+        // When only the view moved, the lines still in range are already painted: only the lines newly
+        // in range are coloured, and colours come off only the lines that left. Re-painting everything
+        // on every scroll step cost about 25 ms on a 10 MB JSON file (and redrew the whole screen
+        // instead of the newly shown strip). After an edit, or a language, font or appearance change
+        // (`stale`), everything in range is done again.
+        let overlap = stale ? NSRange(location: range.location, length: 0) : NSIntersectionRange(previous, range)
+        let incremental = overlap.length > 0
+        let fresh = incremental ? Self.parts(of: range, outside: overlap) : [range]
+        let gone = incremental ? Self.parts(of: previous, outside: overlap) : (previous.length > 0 ? [previous] : [])
+
+        Self.timed("3 colours") {
+            for part in gone {
+                layout.removeTemporaryAttribute(.foregroundColor, forCharacterRange: part)
+                layout.removeTemporaryAttribute(.underlineStyle, forCharacterRange: part)
+            }
         }
         let dark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let language = engine.language
-        for token in tokens {
-            layout.addTemporaryAttribute(.foregroundColor, value: SyntaxPalette.color(for: token.kind, language: language, dark: dark),
-                                         forCharacterRange: token.range)
+        var newLinks: [(range: NSRange, url: URL)] = []
+        for part in fresh where part.length > 0 {
+            let tokens = Self.timed("1 tokens") { engine.tokens(in: part, index: lineIndex, text: text) }
+            Self.timed("2 fonts") { applyBold(tokens, in: part, storage: storage) }
+            Self.timed("3 colours") {
+                for token in tokens {
+                    layout.addTemporaryAttribute(.foregroundColor, value: SyntaxPalette.color(for: token.kind, language: language, dark: dark),
+                                                 forCharacterRange: token.range)
+                }
+            }
+            // Links keep their colour and are underlined, as Notepad++ shows clickable links. They're
+            // looked for in whole paragraphs, so one isn't cut in two where the part starts or ends.
+            Self.timed("4 links") {
+                let paragraphs = NSIntersectionRange(text.paragraphRange(for: part), range)
+                for link in detectLinks(in: paragraphs, text: text)
+                where NSIntersectionRange(link.range, part).length > 0 && !newLinks.contains(where: { NSEqualRanges($0.range, link.range) }) {
+                    newLinks.append(link)
+                    layout.addTemporaryAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, forCharacterRange: link.range)
+                }
+            }
         }
-        // Links keep their colour and are underlined, as Notepad++ shows clickable links.
-        links = detectLinks(in: range, text: text)
-        for link in links {
-            layout.addTemporaryAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, forCharacterRange: link.range)
-        }
+        let kept = incremental ? links.filter { link in
+            NSIntersectionRange(link.range, range).length == link.range.length
+                && !newLinks.contains { NSEqualRanges($0.range, link.range) }
+        } : []
+        links = kept + newLinks
         paintedRange = range
         stale = false
+    }
+
+    /// The parts of `outer` before and after `inner` (which lies inside it).
+    private static func parts(of outer: NSRange, outside inner: NSRange) -> [NSRange] {
+        [NSRange(location: outer.location, length: max(0, inner.location - outer.location)),
+         NSRange(location: NSMaxRange(inner), length: max(0, NSMaxRange(outer) - NSMaxRange(inner)))].filter { $0.length > 0 }
+    }
+
+    /// Bold is a real font attribute on the text, as in Notepad++: the bold face of the editor font from
+    /// NSFontManager. Attribute-only storage changes don't register undo, dirty the document or change
+    /// the saved text, and monospaced bold faces keep the same advances, so lines don't reflow.
+    ///
+    /// Only characters whose font is wrong are changed. A font change makes TextKit lay that text out
+    /// again, and with non-contiguous layout, changing text far above the screen means laying out
+    /// everything in between: resetting the previous screen's bold after ⌘↓ took 2 s on a 10 MB file.
+    /// So bold stays on text that scrolls away (it moves with the text if edits happen elsewhere), and
+    /// text already right is left alone.
+    private func applyBold(_ tokens: [SyntaxToken], in part: NSRange, storage: NSTextStorage) {
+        var bold: [NSRange] = []
+        for token in tokens where SyntaxPalette.isBold(token.kind) {
+            if let last = bold.last, NSMaxRange(last) >= token.range.location {
+                bold[bold.count - 1].length = max(NSMaxRange(last), NSMaxRange(token.range)) - last.location // Merge, e.g. ">=".
+            } else { bold.append(token.range) }
+        }
+        guard boldFont != baseFont && (boldUsed || !bold.isEmpty) else { return }
+        var runs: [(range: NSRange, bold: Bool)] = []
+        var cursor = part.location
+        for run in bold {
+            if run.location > cursor { runs.append((NSRange(location: cursor, length: run.location - cursor), false)) }
+            runs.append((run, true))
+            cursor = NSMaxRange(run)
+        }
+        if NSMaxRange(part) > cursor { runs.append((NSRange(location: cursor, length: NSMaxRange(part) - cursor), false)) }
+        var editing = false
+        for run in runs where run.range.length > 0 && NSMaxRange(run.range) <= storage.length {
+            let wanted = run.bold ? boldFont : baseFont
+            var effective = NSRange()
+            let current = storage.attribute(.font, at: run.range.location, longestEffectiveRange: &effective, in: run.range) as? NSFont
+            if current == wanted && NSEqualRanges(effective, run.range) { continue }
+            if !editing { storage.beginEditing(); editing = true }
+            storage.addAttribute(.font, value: wanted, range: run.range)
+        }
+        if editing { storage.endEditing() }
+        if !bold.isEmpty { boldUsed = true }
     }
 
     /// URLs and email addresses in `range`, found by NSDataDetector.
@@ -162,12 +223,13 @@ import AppKit
             textView.layoutManager?.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
             textView.layoutManager?.removeTemporaryAttribute(.underlineStyle, forCharacterRange: range)
         }
-        if boldApplied, range.length > 0, let storage = textView.textStorage {
+        // Bold may be anywhere text was shown (see renderVisibleText): back to the regular face everywhere.
+        if boldUsed, let storage = textView.textStorage, storage.length > 0 {
             storage.beginEditing()
-            storage.addAttribute(.font, value: baseFont, range: range)
+            storage.addAttribute(.font, value: baseFont, range: NSRange(location: 0, length: storage.length))
             storage.endEditing()
         }
-        boldApplied = false
+        boldUsed = false
         paintedRange = NSRange(location: 0, length: 0)
         stale = true
     }

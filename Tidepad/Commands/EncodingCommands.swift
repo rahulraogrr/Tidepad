@@ -34,7 +34,7 @@ private struct EncodingMenuItems: View {
                 }
             }
         }
-        .disabled(!context.hasDocument || context.document?.isLarge == true) // Large files are read-only for now.
+        .disabled(!context.hasDocument || context.document?.isLarge == true) // Not yet for large files: they'd be re-encoded whole.
     }
 
     private func convertItem(_ choice: TextEncodingChoice) -> some View {
