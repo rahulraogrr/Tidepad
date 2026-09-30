@@ -128,6 +128,28 @@ final class LargeTextBuffer: @unchecked Sendable {
         return result
     }
 
+    /// The pieces for a range with replacements made in it (Replace All): the range's own pieces
+    /// between the edits, and added text for each replacement. Equal replacements in a row share one
+    /// piece of added text. Edits must be in order, inside the range, and not overlap.
+    func pieces(in range: Range<Int>, replacing edits: [(range: Range<Int>, bytes: [UInt8])]) -> [Piece] {
+        var result: [Piece] = [], cursor = range.lowerBound
+        var shared: (bytes: [UInt8], piece: Piece)?
+        for edit in edits {
+            result.append(contentsOf: pieces(in: cursor..<edit.range.lowerBound))
+            if !edit.bytes.isEmpty {
+                if let shared, shared.bytes == edit.bytes {
+                    result.append(shared.piece)
+                } else if let piece = pieces(for: edit.bytes).first {
+                    result.append(piece)
+                    shared = (edit.bytes, piece)
+                }
+            }
+            cursor = edit.range.upperBound
+        }
+        result.append(contentsOf: pieces(in: cursor..<range.upperBound))
+        return result
+    }
+
     private func slice(_ piece: Piece, _ local: Range<Int>) -> Piece {
         if local.lowerBound == 0 && local.count == piece.length { return piece }
         let start = piece.start + local.lowerBound
@@ -388,7 +410,7 @@ final class LargeTextBuffer: @unchecked Sendable {
     }
 
     /// The first match wholly inside `range`: searched within each piece, then across each seam.
-    private func firstMatch(_ pattern: [UInt8], in range: Range<Int>, matchCase: Bool, cancelled: () -> Bool) -> Range<Int>? {
+    func firstMatch(_ pattern: [UInt8], in range: Range<Int>, matchCase: Bool, cancelled: () -> Bool) -> Range<Int>? {
         let n = pattern.count
         guard range.count >= n else { return nil }
         var found: Range<Int>?
@@ -415,7 +437,7 @@ final class LargeTextBuffer: @unchecked Sendable {
     }
 
     /// The last match wholly inside `range`.
-    private func lastMatch(_ pattern: [UInt8], in range: Range<Int>, matchCase: Bool, cancelled: () -> Bool) -> Range<Int>? {
+    func lastMatch(_ pattern: [UInt8], in range: Range<Int>, matchCase: Bool, cancelled: () -> Bool) -> Range<Int>? {
         let n = pattern.count
         guard range.count >= n else { return nil }
         var found: Range<Int>?
@@ -559,24 +581,26 @@ enum ByteSearch {
         let lower = pattern.map(lowercased)
         let firstByte = lower[0], firstUpper = firstByte >= 0x61 && firstByte <= 0x7A ? firstByte - 0x20 : firstByte
         let last = count - n
-        func next(_ byte: UInt8, from: Int) -> Int {
-            guard from <= last, let hit = memchr(base + from, Int32(byte), last + 1 - from) else { return .max }
+        func next(_ byte: UInt8, from: Int, through limit: Int) -> Int {
+            guard from <= limit, let hit = memchr(base + from, Int32(byte), limit + 1 - from) else { return .max }
             return UnsafeRawPointer(hit) - UnsafeRawPointer(base)
         }
-        var nextLower = next(firstByte, from: 0)
-        var nextUpper = firstByte == firstUpper ? Int.max : next(firstUpper, from: 0)
-        var checked = 0
-        while true {
+        // The other case is only looked for up to the next first byte in this case, so a letter that
+        // never appears in upper case doesn't cost a scan to the end for every match (Replace All).
+        var position = 0, nextLower = -1, checked = 0
+        while position <= last {
+            if nextLower < position { nextLower = next(firstByte, from: position, through: last) }
+            let nextUpper = firstByte == firstUpper ? Int.max : next(firstUpper, from: position, through: min(last, nextLower))
             let candidate = min(nextLower, nextUpper)
             guard candidate <= last else { return nil }
             var k = 1
             while k < n && lowercased(base[candidate + k]) == lower[k] { k += 1 }
             if k == n { return candidate..<(candidate + n) }
-            if candidate == nextLower { nextLower = next(firstByte, from: candidate + 1) }
-            if candidate == nextUpper { nextUpper = next(firstUpper, from: candidate + 1) }
+            position = candidate + 1
             checked += 1
             if checked % 1_000_000 == 0 && cancelled() { return nil }
         }
+        return nil
     }
 
     /// The last match, searching back in blocks.

@@ -46,6 +46,13 @@ repository, whoever (or whatever) writes it.
     with `mmap` directly; Foundation's `.alwaysMapped` doesn't document when it copies instead.
     Volumes without cloning fall back to chunked reads.
   - An 850-million-point-tall scroll view stays sharp and evenly spaced, so no virtual scrolling.
+- Large-file search (2026-09-30): regular expressions use `NSRegularExpression`, the same expression
+  as the normal editor (`SearchEngine.expression`), over 4 MB chunks decoded to `NSString`, with a
+  64 KB overlap and 4 KB of context on each side (`LargeTextSearch`). One `NSString` for the whole
+  file was rejected: 500 MB of UTF-8 becomes ~1 GB of UTF-16 and a full decode before the first match.
+  Limits: a match can't be longer than 64 KB, and look-arounds see 4 KB. Plain text stays a byte
+  search (memchr/memmem). ^ and $ match at every line in both editors, as in Notepad++. Replace All
+  goes in as pieces over the file (nothing rewritten), capped at 100,000 like the normal editor.
 - Terminal panel (2026-09-28): the shell runs on a pseudo-terminal created with `forkpty` from macOS's
   C library, not Foundation's `Process`, because `Process` can't give the shell a controlling
   terminal, which job control, Ctrl-C and full-screen programs need; Terminal.app works the same way.

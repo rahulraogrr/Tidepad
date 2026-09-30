@@ -541,7 +541,9 @@ import SwiftUI
     private func noteEdit(replacing range: Range<Int>, with pieces: [LargeTextBuffer.Piece]) {
         syncCaches()
         let line = buffer.line(containing: range.lowerBound)
-        if var map = longLineMaps[line], pieces.allSatisfy({ $0.breaks == 0 }),
+        // (Not for big edits such as Replace All over a long line: counting their characters costs more
+        // than building the map again.)
+        if var map = longLineMaps[line], range.count <= 1 << 20, pieces.count <= 1_024, pieces.allSatisfy({ $0.breaks == 0 }),
            range.lowerBound >= map.range.lowerBound, range.upperBound <= map.range.upperBound {
             map.edited(at: range.lowerBound, removedBytes: range.count, removedCharacters: buffer.characterCount(in: range),
                        insertedBytes: pieces.reduce(0) { $0 + $1.length }, insertedCharacters: Self.characters(in: pieces))
@@ -580,6 +582,13 @@ import SwiftUI
         }
         history.setActionName(action)
         textChanged(select: selection ?? (inserted.upperBound..<inserted.upperBound))
+    }
+
+    /// Replace and Replace All: the edits (in order, inside `range`) as one undoable step. The
+    /// unchanged text between them stays pieces of the file, so nothing is copied.
+    func replace(matches edits: [(range: Range<Int>, bytes: [UInt8])], in range: Range<Int>, select selection: Range<Int>, action: String) {
+        guard !edits.isEmpty else { return }
+        replace(range, with: buffer.pieces(in: clamp(range), replacing: edits), select: selection, action: action)
     }
 
     /// Typing: consecutive characters extend one undo step.

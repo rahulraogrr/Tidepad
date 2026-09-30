@@ -49,6 +49,8 @@ actor CompiledSearchCache {
     @ObservationIgnored private var linePanel: NSPanel?
     @ObservationIgnored private(set) var progress: Progress?
     @ObservationIgnored private var lastMatch: (UUID, UInt64, NSRange, SearchQuery)?
+    /// The large-file view's last match, to step over it when it's empty.
+    @ObservationIgnored private var lastLargeMatch: (buffer: LargeTextBuffer, revision: Int, range: Range<Int>)?
     var canSearch: Bool { !query.text.isEmpty && validationError == nil }
     var hasDocument: Bool { context?.hasDocument == true }
 
@@ -121,24 +123,22 @@ actor CompiledSearchCache {
         }
     }
 
-    /// Find Next/Previous in the large-file view: a byte search on the mapped file, in the background
-    /// (see LargeTextBuffer.find), on a snapshot so editing can go on. Normal and Extended modes, with
-    /// Match case and Wrap around.
+    /// Find Next/Previous in the large-file view, in the background on a snapshot so editing can go
+    /// on (LargeTextSearch: a byte search for plain text, NSRegularExpression in chunks otherwise).
     private func navigateLarge(_ view: LargeTextView, backwards: Bool) {
-        guard query.mode != .regex, !query.wholeWord else {
-            message = "Regular expressions and whole-word search aren't available for large files yet."; return
-        }
-        let text: String
-        do { text = query.mode == .extended ? try SearchEngine.decode(query.text) : query.text } catch { message = error.localizedDescription; return }
-        guard !text.isEmpty else { return }
-        let buffer = view.buffer, snapshot = buffer.snapshot(), pattern = Array(text.utf8), selection = view.selectedBytes
-        let matchCase = query.matchCase, wrap = query.wrap
+        let search: LargeTextSearch
+        do { search = try LargeTextSearch(query) } catch { message = error.localizedDescription; return }
+        let buffer = view.buffer, snapshot = buffer.snapshot(), selection = view.selectedBytes, wrap = query.wrap
+        // An empty match (^, $) where the caret is was just found: step over it.
+        var excluding: Range<Int>?
+        if let last = lastLargeMatch, last.buffer === buffer, last.revision == buffer.revision, last.range == selection, selection.isEmpty { excluding = selection }
+        let excluded = excluding
         cancelDocumentSearch(); let token = generation; busy = true; remember()
         message = "Searching…"
         task = Task { [weak self] in
             let worker = Task.detached(priority: .userInitiated) {
-                snapshot.find(pattern, from: backwards ? selection.lowerBound : selection.upperBound, backwards: backwards,
-                          matchCase: matchCase, wrap: wrap, cancelled: { Task.isCancelled })
+                search.next(in: snapshot, from: backwards ? selection.lowerBound : selection.upperBound, backwards: backwards,
+                            wrap: wrap, excluding: excluded, cancelled: { Task.isCancelled })
             }
             let match = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard let self, self.generation == token else { return }
@@ -146,12 +146,86 @@ actor CompiledSearchCache {
             guard !Task.isCancelled, view.buffer === buffer, buffer.revision == snapshot.revision else {
                 self.message = "Search discarded: the document changed."; return
             }
-            if let match { view.select(match); self.message = "Match found." } else { self.message = "No match found." }
+            if let match {
+                view.select(match)
+                self.lastLargeMatch = (buffer, buffer.revision, match)
+                self.message = "Match found."
+            } else { self.message = "No match found." }
+        }
+    }
+
+    /// Count in the large-file view.
+    private func countLarge(_ view: LargeTextView) {
+        let search: LargeTextSearch
+        do { search = try LargeTextSearch(query) } catch { message = error.localizedDescription; return }
+        let buffer = view.buffer, snapshot = buffer.snapshot()
+        cancelDocumentSearch(); let token = generation; busy = true; remember()
+        message = "Counting…"
+        task = Task { [weak self] in
+            let worker = Task.detached(priority: .userInitiated) { search.count(in: snapshot, cancelled: { Task.isCancelled }) }
+            let count = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            guard let self, self.generation == token else { return }
+            self.busy = false
+            guard !Task.isCancelled else { return }
+            self.message = count == 1 ? "1 match." : "\(count.formatted()) matches."
+        }
+    }
+
+    /// Replace, Replace All and Replace All in Selection in the large-file view. The matches and their
+    /// replacements are worked out in the background on a snapshot; if the document is unchanged, they
+    /// go in as one undoable edit (LargeTextView.replace(matches:)), pieces over the file, so nothing
+    /// is rewritten. At most 100,000, as in the normal editor.
+    private func replaceLarge(_ view: LargeTextView, all: Bool, inSelection: Bool, findNext: Bool) {
+        let search: LargeTextSearch
+        do { search = try LargeTextSearch(query) } catch { message = error.localizedDescription; return }
+        let buffer = view.buffer, snapshot = buffer.snapshot(), selection = view.selectedBytes, template = replacement
+        if inSelection && selection.isEmpty { message = "Select text to replace within."; return }
+        let scope = all && !inSelection ? buffer.contentStart..<buffer.count : selection
+        cancelDocumentSearch(); let token = generation; busy = true; remember()
+        message = all ? "Replacing…" : ""
+        task = Task { [weak self] in
+            do {
+                let worker = Task.detached(priority: .userInitiated) { () throws -> [LargeTextSearch.Edit]? in
+                    if all { return try search.replacements(in: snapshot, range: scope, template: template, cancelled: { Task.isCancelled }) }
+                    return try search.replacement(forSelection: selection, in: snapshot, template: template, cancelled: { Task.isCancelled })
+                        .map { [(range: selection, bytes: $0)] }
+                }
+                let edits = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+                guard let self, self.generation == token else { return }
+                self.busy = false
+                guard !Task.isCancelled, view.buffer === buffer, buffer.revision == snapshot.revision, view.selectedBytes == selection else {
+                    self.message = "Replace cancelled: document or selection changed."; return
+                }
+                // Like Notepad++, Replace with no matching selection moves to the next match instead.
+                guard let edits, let first = edits.first, let last = edits.last else {
+                    if all { self.message = "No matches." } else { self.message = "No matching text selected."; self.navigateLarge(view, backwards: false) }
+                    return
+                }
+                let delta = edits.reduce(0) { $0 + $1.bytes.count - $1.range.count }
+                let after: Range<Int>
+                if inSelection {
+                    after = selection.lowerBound..<(selection.upperBound + delta)
+                } else if all {
+                    // The caret stays where it was, moved by the replacements before it.
+                    let caret = selection.lowerBound + edits.lazy.filter { $0.range.upperBound <= selection.lowerBound }.reduce(0) { $0 + $1.bytes.count - $1.range.count }
+                    after = caret..<caret
+                } else {
+                    let end = first.range.lowerBound + first.bytes.count
+                    after = end..<end
+                }
+                view.replace(matches: edits, in: first.range.lowerBound..<last.range.upperBound, select: after, action: all ? "Replace All" : "Replace")
+                self.message = edits.count == 1 ? "Replaced 1 match." : "Replaced \(edits.count.formatted()) matches."
+                self.lastLargeMatch = nil
+                if findNext { self.navigateLarge(view, backwards: false) }
+            } catch { self?.finish(error, token: token) }
         }
     }
 
     func findAll(countOnly: Bool = false) {
-        if context?.document?.isLarge == true { message = "Find All isn't available for large files yet."; return }
+        if let view = context?.largeView {
+            if countOnly { countLarge(view) } else { message = "Find All isn't available for large files yet." }
+            return
+        }
         guard let context, let session = context.session else { return }
         let document = session.document, snapshot = SearchSnapshot(text: session.document.text, revision: session.document.revision)
         let query = query, cache = cache, id = document.id, name = document.displayName, url = document.fileURL
@@ -189,7 +263,7 @@ actor CompiledSearchCache {
     }
 
     func replace(all: Bool = false, inSelection: Bool = false, findNext: Bool = false) {
-        if context?.document?.isLarge == true { message = "Replace isn't available for large files yet."; return }
+        if let view = context?.largeView { replaceLarge(view, all: all, inSelection: inSelection, findNext: findNext); return }
         guard let context, let session = context.session else { return }
         let document = session.document, snapshot = SearchSnapshot(text: session.document.text, revision: session.document.revision)
         let selection = session.textView.selectedRange()

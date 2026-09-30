@@ -19,6 +19,10 @@ build/FolderChecks
 xcrun swiftc -O "${flags[@]}" Tidepad/Storage/MappedUTF8Text.swift Tidepad/Storage/PieceTable.swift Tidepad/Storage/PieceTableString.swift Tests/StorageChecks.swift -o build/StorageChecks
 build/StorageChecks
 xcrun swiftc -O "${flags[@]}" Tidepad/Storage/LargeTextFile.swift Tidepad/Storage/LargeTextBuffer.swift Tests/LargeFileChecks.swift -o build/LargeFileChecks
+xcrun swiftc -O "${flags[@]}" Tidepad/Storage/LargeTextFile.swift Tidepad/Storage/LargeTextBuffer.swift Tidepad/Search/SearchQuery.swift Tidepad/Search/SearchEngine.swift Tidepad/Search/LargeTextSearch.swift Tests/LargeSearchChecks.swift -o build/LargeSearchChecks
+build/LargeSearchChecks
 build/LargeFileChecks
-xcrun swiftc "${flags[@]}" Tidepad/Models/*.swift Tidepad/Documents/*.swift Tidepad/Editor/*.swift Tidepad/Syntax/*.swift Tidepad/Utilities/*.swift Tidepad/Project/*.swift Tidepad/Terminal/*.swift Tidepad/ClaudeCode/*.swift Tidepad/Session/*.swift Tidepad/Storage/LargeTextFile.swift Tidepad/Storage/LargeTextBuffer.swift Tests/EditorChecks.swift -o build/EditorChecks
+xcrun swiftc -O "${flags[@]}" Tidepad/Storage/LargeTextFile.swift Tidepad/Storage/LargeTextBuffer.swift Tidepad/Search/SearchQuery.swift Tidepad/Search/SearchEngine.swift Tidepad/Search/LargeTextSearch.swift Tests/LargeSearchChecks.swift -o build/LargeSearchChecks
+build/LargeSearchChecks
+xcrun swiftc "${flags[@]}" Tidepad/Models/*.swift Tidepad/Documents/*.swift Tidepad/Editor/*.swift Tidepad/Syntax/*.swift Tidepad/Utilities/*.swift Tidepad/Project/*.swift Tidepad/Terminal/*.swift Tidepad/ClaudeCode/*.swift Tidepad/Session/*.swift Tidepad/Storage/LargeTextFile.swift Tidepad/Storage/LargeTextBuffer.swift Tidepad/Search/SearchQuery.swift Tidepad/Search/SearchEngine.swift Tidepad/Search/LargeTextSearch.swift Tests/EditorChecks.swift -o build/EditorChecks
 build/EditorChecks

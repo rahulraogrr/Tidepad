@@ -113,6 +113,18 @@ final class WebSocketInbox: @unchecked Sendable {
         pump(0.01)
         undo.undo()
         precondition(buffer.text(in: buffer.lineRange(5)).hasPrefix("Tidepad 2026"), "Undo composition")
+        // Replace All with a regular expression: one undoable edit over pieces of the file.
+        let size2 = buffer.count
+        let replaceStarted = Date()
+        let edits = try LargeTextSearch(SearchQuery(text: "status=(\\d+)$", mode: .regex))
+            .replacements(in: buffer, range: buffer.contentStart..<buffer.lineStart(1_000), template: "STATUS=$1")
+        view.replace(matches: edits, in: edits.first!.range.lowerBound..<edits.last!.range.upperBound, select: 0..<0, action: "Replace All")
+        let replaceTime = Date().timeIntervalSince(replaceStarted) * 1000
+        precondition(edits.count == 1_000 && buffer.count == size2 && buffer.text(in: buffer.lineRange(999)).hasSuffix("STATUS=200")
+                     && buffer.text(in: buffer.lineRange(1_000)).hasSuffix(" status=200") && undo.undoMenuItemTitle == "Undo Replace All", "Replace All")
+        pump(0.01)
+        undo.undo()
+        precondition(buffer.text(in: buffer.lineRange(999)).hasSuffix(" status=200") && buffer.text(in: buffer.lineRange(5)).hasPrefix("Tidepad 2026"), "Undo Replace All")
         // Save: streamed, then the buffer starts again from the saved file; undo still works after.
         let saveStarted = Date()
         try TextFileService().write(document, to: url)
@@ -148,8 +160,8 @@ final class WebSocketInbox: @unchecked Sendable {
                      && restoredBuffer.text(in: restoredBuffer.lineRange(7)).hasPrefix("KEPT 2026"), "Edits come back, still unsaved")
         window.displayIfNeeded()
         window.contentView = nil
-        print(String(format: "PASS large file: %d MB opened in %.0f ms (%@), %d lines, Go to Line, selection, Copy, typing (%.2f ms a key), Return, delete, paste, input methods, undo/redo, save in %.0f ms, unsaved edits kept across launches",
-                     file.count >> 20, openTime, file.isCloned ? "APFS clone" : "read into memory", file.lineCount, typingTime, saveTime))
+        print(String(format: "PASS large file: %d MB opened in %.0f ms (%@), %d lines, Go to Line, selection, Copy, typing (%.2f ms a key), Return, delete, paste, input methods, Replace All of 1,000 (regex) in %.1f ms, undo/redo, save in %.0f ms, unsaved edits kept across launches",
+                     file.count >> 20, openTime, file.isCloned ? "APFS clone" : "read into memory", file.lineCount, typingTime, replaceTime, saveTime))
         try? FileManager.default.removeItem(at: url)
     }
 

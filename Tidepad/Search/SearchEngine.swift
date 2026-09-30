@@ -10,11 +10,19 @@ final class SearchEngine: @unchecked Sendable {
         guard !query.text.isEmpty else { throw SearchFailure.empty }
         self.query = query
         literal = query.mode == .extended ? try Self.decode(query.text) : query.text
-        if query.mode == .regex || query.wholeWord {
-            var pattern = query.mode == .regex ? query.text : NSRegularExpression.escapedPattern(for: literal)
-            if query.wholeWord { pattern = "(?<![\\p{L}\\p{N}\\p{M}_])(?:\(pattern))(?![\\p{L}\\p{N}\\p{M}_])" }
-            regex = try NSRegularExpression(pattern: pattern, options: query.matchCase ? [] : [.caseInsensitive])
-        } else { regex = nil }
+        regex = try Self.expression(for: query, literal: literal)
+    }
+
+    /// The regular expression a query needs (regular-expression mode, or Whole word), or nil for a
+    /// plain search. As in Notepad++, ^ and $ match at the start and end of every line. The large-file
+    /// view uses the same expression (LargeTextSearch), so both editors find the same matches.
+    static func expression(for query: SearchQuery, literal: String) throws -> NSRegularExpression? {
+        guard query.mode == .regex || query.wholeWord else { return nil }
+        var pattern = query.mode == .regex ? query.text : NSRegularExpression.escapedPattern(for: literal)
+        if query.wholeWord { pattern = "(?<![\\p{L}\\p{N}\\p{M}_])(?:\(pattern))(?![\\p{L}\\p{N}\\p{M}_])" }
+        var options: NSRegularExpression.Options = [.anchorsMatchLines]
+        if !query.matchCase { options.insert(.caseInsensitive) }
+        return try NSRegularExpression(pattern: pattern, options: options)
     }
 
     static func decode(_ text: String) throws -> String {

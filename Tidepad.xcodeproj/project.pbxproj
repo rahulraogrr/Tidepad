@@ -83,6 +83,7 @@
 		7D1C0A55E7B14F2A9C3E0051 /* Tidepad/Storage/LargeTextFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1C0A55E7B14F2A9C3E0052 /* Tidepad/Storage/LargeTextFile.swift */; };
 		7D1C0A55E7B14F2A9C3E0053 /* Tidepad/Editor/LargeTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1C0A55E7B14F2A9C3E0054 /* Tidepad/Editor/LargeTextView.swift */; };
 		7D1C0A55E7B14F2A9C3E0061 /* Tidepad/Storage/LargeTextBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1C0A55E7B14F2A9C3E0062 /* Tidepad/Storage/LargeTextBuffer.swift */; };
+		7D1C0A55E7B14F2A9C3E0071 /* Tidepad/Search/LargeTextSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1C0A55E7B14F2A9C3E0072 /* Tidepad/Search/LargeTextSearch.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -163,6 +164,7 @@
 		7D1C0A55E7B14F2A9C3E0052 /* Tidepad/Storage/LargeTextFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Storage/LargeTextFile.swift; sourceTree = SOURCE_ROOT; };
 		7D1C0A55E7B14F2A9C3E0054 /* Tidepad/Editor/LargeTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Editor/LargeTextView.swift; sourceTree = SOURCE_ROOT; };
 		7D1C0A55E7B14F2A9C3E0062 /* Tidepad/Storage/LargeTextBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Storage/LargeTextBuffer.swift; sourceTree = SOURCE_ROOT; };
+		7D1C0A55E7B14F2A9C3E0072 /* Tidepad/Search/LargeTextSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Search/LargeTextSearch.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -189,6 +191,7 @@
 				7D1C0A55E7B14F2A9C3E0054 /* Tidepad/Editor/LargeTextView.swift */,
 				7D1C0A55E7B14F2A9C3E0052 /* Tidepad/Storage/LargeTextFile.swift */,
 				7D1C0A55E7B14F2A9C3E0062 /* Tidepad/Storage/LargeTextBuffer.swift */,
+				7D1C0A55E7B14F2A9C3E0072 /* Tidepad/Search/LargeTextSearch.swift */,
 				6F002C93B43B96C6070872DC /* Tidepad/ClaudeCode/IDEProtocol.swift */,
 				AE672C1375E729F1BBF5A5E6 /* Tidepad/ClaudeCode/LineDiff.swift */,
 				C4FBB8EDF11028B39DD0C36D /* Tidepad/ClaudeCode/IDEServer.swift */,
@@ -339,6 +342,7 @@
 				7D1C0A55E7B14F2A9C3E0053 /* Tidepad/Editor/LargeTextView.swift in Sources */,
 				7D1C0A55E7B14F2A9C3E0051 /* Tidepad/Storage/LargeTextFile.swift in Sources */,
 				7D1C0A55E7B14F2A9C3E0061 /* Tidepad/Storage/LargeTextBuffer.swift in Sources */,
+				7D1C0A55E7B14F2A9C3E0071 /* Tidepad/Search/LargeTextSearch.swift in Sources */,
 				4F145E5A108841260159880A /* Tidepad/ClaudeCode/IDEProtocol.swift in Sources */,
 				2EBF3761F24C40C58FC32C8D /* Tidepad/ClaudeCode/LineDiff.swift in Sources */,
 				693F659DC26BF0C575D498E9 /* Tidepad/ClaudeCode/IDEServer.swift in Sources */,
