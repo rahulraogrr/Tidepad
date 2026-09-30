@@ -8,6 +8,11 @@ import AppKit
 /// two seconds while something changes, so a crash loses at most that much. Quitting saves the session
 /// without asking about unsaved tabs; they come back, still unsaved, the next time Tidepad starts.
 /// Closing a tab still asks, and a tab saved or closed without saving drops its backup.
+///
+/// A large file's unsaved edits are kept as a journal (LargeTextBuffer.Journal): the ranges of the file
+/// it keeps and the bytes typed or pasted, never a copy of the file. It's replayed at launch if the
+/// file is unchanged (same modification date and size); if another app changed it, Tidepad says the
+/// edits couldn't be restored.
 @MainActor final class SessionKeeper {
     struct State: Codable {
         struct Tab: Codable {
@@ -15,6 +20,8 @@ import AppKit
             var name: String
             /// The backup file with the tab's unsaved text, if it has any.
             var backup: String?
+            /// For a large file with unsaved edits: the journal (its data is in "<journal>-data").
+            var journal: String?
             var encoding: UInt
             var byteOrderMark: Bool
             var lineEnding: String
@@ -88,9 +95,25 @@ import AppKit
         var keep = Set<String>()
         var succeeded = true
         for document in manager.documents {
-            // Unsaved edits to a large file can't be backed up as text (that would be the whole file):
-            // quitting then asks whether to save them.
-            if document.isLarge && document.hasUnsavedChanges { succeeded = false }
+            var journalName: String?
+            if let buffer = document.largeBuffer, document.hasUnsavedChanges {
+                let name = document.id.uuidString + ".journal"
+                let url = directory.appendingPathComponent(name), dataURL = directory.appendingPathComponent(name + "-data")
+                if backedUpRevision[document.id] != document.revision || !fm.fileExists(atPath: url.path) {
+                    do {
+                        let (journal, data) = buffer.journal()
+                        try data.write(to: dataURL, options: .atomic)
+                        try JSONEncoder().encode(journal).write(to: url, options: .atomic)
+                        backedUpRevision[document.id] = document.revision
+                    } catch {
+                        succeeded = false
+                        NSLog("Tidepad: couldn't keep the edits to \(document.displayName): \(error)")
+                    }
+                }
+                journalName = name
+                keep.insert(name)
+                keep.insert(name + "-data")
+            }
             let needsBackup = !document.isLarge && (document.hasUnsavedChanges || (document.fileURL == nil && !document.text.isEmpty))
             guard document.fileURL != nil || needsBackup else { continue } // A blank Untitled tab has nothing to keep.
             var backup: String?
@@ -108,10 +131,10 @@ import AppKit
                 }
                 backup = name
                 keep.insert(name)
-            } else {
+            } else if journalName == nil {
                 backedUpRevision[document.id] = nil
             }
-            state.tabs.append(State.Tab(path: document.fileURL?.path, name: document.displayName, backup: backup,
+            state.tabs.append(State.Tab(path: document.fileURL?.path, name: document.displayName, backup: backup, journal: journalName,
                                         encoding: document.encoding.rawValue, byteOrderMark: document.hasByteOrderMark,
                                         lineEnding: document.lineEnding.rawValue, language: document.languageOverride?.rawValue,
                                         modified: document.diskStamp?.modified, size: document.diskStamp?.size, caret: caret(of: document)))
@@ -128,7 +151,7 @@ import AppKit
         }
         // Backups of tabs that were saved or closed are no longer needed.
         let files = (try? fm.contentsOfDirectory(atPath: directory.path)) ?? []
-        for file in files where file.hasSuffix(".txt") && !keep.contains(file) {
+        for file in files where (file.hasSuffix(".txt") || file.hasSuffix(".journal") || file.hasSuffix(".journal-data")) && !keep.contains(file) {
             try? fm.removeItem(at: directory.appendingPathComponent(file))
         }
         if succeeded { lastSignature = signature() }
@@ -145,10 +168,16 @@ import AppKit
         guard let data = try? Data(contentsOf: stateFile), let state = try? JSONDecoder().decode(State.self, from: data) else { return }
         var restored: [EditorDocument] = []
         var selectedIndex: Int?
+        var lostEdits: [String] = []
         for (index, tab) in state.tabs.enumerated() {
             let url = tab.path.map { URL(fileURLWithPath: $0) }
             let document: EditorDocument
-            if let backup = tab.backup, let text = try? String(contentsOf: directory.appendingPathComponent(backup), encoding: .utf8) {
+            if let journal = tab.journal, let url, let edited = restoreLarge(url, journal: journal, tab: tab) {
+                document = edited
+            } else if tab.journal != nil, let url, let loaded = try? TextFileService().open(url) {
+                lostEdits.append(tab.name) // The file changed (or the journal couldn't be read): open it as it is.
+                document = loaded.makeDocument()
+            } else if let backup = tab.backup, let text = try? String(contentsOf: directory.appendingPathComponent(backup), encoding: .utf8) {
                 document = EditorDocument(fileURL: url, displayName: tab.name, text: text,
                                           encoding: String.Encoding(rawValue: tab.encoding), lineEnding: LineEnding(rawValue: tab.lineEnding))
                 document.hasByteOrderMark = tab.byteOrderMark
@@ -167,6 +196,28 @@ import AppKit
         manager.restore(restored, selected: selectedIndex)
         if state.terminalVisible { terminal.show() }
         lastSignature = signature()
+        if !lostEdits.isEmpty {
+            DispatchQueue.main.async {
+                let alert = NSAlert()
+                alert.messageText = "Unsaved changes to \(lostEdits.joined(separator: ", ")) couldn't be restored."
+                alert.informativeText = "The file changed on disk after Tidepad quit, so the changes no longer fit it. It's open as it is now."
+                alert.runModal()
+            }
+        }
+    }
+
+    /// A large file with its journal's edits, if the file is exactly as it was when they were made.
+    private func restoreLarge(_ url: URL, journal name: String, tab: State.Tab) -> EditorDocument? {
+        guard FileStamp(url) == FileStamp(modified: tab.modified, size: tab.size),
+              let journalData = try? Data(contentsOf: directory.appendingPathComponent(name)),
+              let journal = try? JSONDecoder().decode(LargeTextBuffer.Journal.self, from: journalData),
+              let data = try? Data(contentsOf: directory.appendingPathComponent(name + "-data"), options: .alwaysMapped),
+              let file = try? LargeTextFile(url: url),
+              let buffer = try? LargeTextBuffer(file: file, journal: journal, data: data) else { return nil }
+        let document = OpenedFile.document(for: buffer)
+        document.diskStamp = FileStamp(modified: tab.modified, size: tab.size)
+        document.markUnsaved()
+        return document
     }
 
     /// Puts a restored tab's caret back once its editor exists.

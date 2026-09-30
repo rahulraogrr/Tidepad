@@ -51,22 +51,27 @@ enum OpenedFile: Sendable {
     func makeDocument() -> EditorDocument {
         switch self {
         case .text(let loaded): return loaded.makeDocument()
-        case .large(let file):
-            let ending: LineEnding
-            switch file.lineBreak {
-            case .lf: ending = .lf
-            case .crlf: ending = .crlf
-            case .cr: ending = .cr
-            }
-            let document = EditorDocument(fileURL: file.url, displayName: file.url.lastPathComponent, text: "",
-                                          encoding: .utf8, lineEnding: ending)
-            document.hasByteOrderMark = file.hasByteOrderMark
-            document.largeBuffer = LargeTextBuffer(file: file)
-            document.diskStamp = FileStamp(file.url)
-            document.lineCount = file.lineCount
-            document.utf16Length = file.count - file.contentStart
-            return document
+        case .large(let file): return Self.document(for: LargeTextBuffer(file: file))
         }
+    }
+
+    /// A tab for a large file's buffer (a freshly opened file, or one with edits from a journal).
+    static func document(for buffer: LargeTextBuffer) -> EditorDocument {
+        let file = buffer.file
+        let ending: LineEnding
+        switch file.lineBreak {
+        case .lf: ending = .lf
+        case .crlf: ending = .crlf
+        case .cr: ending = .cr
+        }
+        let document = EditorDocument(fileURL: file.url, displayName: file.url.lastPathComponent, text: "",
+                                      encoding: .utf8, lineEnding: ending)
+        document.hasByteOrderMark = file.hasByteOrderMark
+        document.largeBuffer = buffer
+        document.diskStamp = FileStamp(file.url)
+        document.lineCount = buffer.lineCount
+        document.utf16Length = buffer.count - buffer.contentStart
+        return document
     }
 }
 

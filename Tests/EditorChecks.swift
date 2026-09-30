@@ -121,12 +121,34 @@ final class WebSocketInbox: @unchecked Sendable {
         precondition(saved.count == buffer.count && String(decoding: saved.prefix(buffer.lineStart(6)), as: UTF8.self).components(separatedBy: "\n")[5].hasPrefix("Tidepad 2026"), "Saved")
         buffer.rebase(on: try LargeTextFile(url: url))
         document.markSaved(at: url)
+        document.diskStamp = FileStamp(url)
         precondition(buffer.pieces.count == 1 && !document.hasUnsavedChanges, "Re-based after saving")
         undo.undo()
         precondition(buffer.text(in: buffer.lineRange(5)).hasPrefix("2026-09-30") && document.hasUnsavedChanges, "Undo after saving")
+        // Quitting keeps the unsaved edits as a journal (not the file), replayed at the next launch.
+        pump(0.01)
+        view.select(buffer.lineStart(7)..<buffer.lineStart(7))
+        view.insertText("KEPT ", replacementRange: NSRange(location: NSNotFound, length: 0))
+        let expected = buffer.bytes(in: 0..<buffer.count)
+        let sessionDirectory = output.appendingPathComponent("large-session")
+        try? FileManager.default.removeItem(at: sessionDirectory)
+        let manager = DocumentManager()
+        manager.documents = [document]
+        manager.selectedID = document.id
+        precondition(SessionKeeper(manager: manager, sessions: EditorSessionStore(), terminal: TerminalPanel(), directory: sessionDirectory).save(),
+                     "Unsaved large-file edits are kept")
+        let journalSize = try FileManager.default.contentsOfDirectory(at: sessionDirectory, includingPropertiesForKeys: [.fileSizeKey])
+            .filter { $0.lastPathComponent.contains(".journal") }
+            .reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+        precondition(journalSize > 0 && journalSize < 100_000, "The journal holds the edits, not the file: \(journalSize) bytes")
+        let relaunched = DocumentManager()
+        SessionKeeper(manager: relaunched, sessions: EditorSessionStore(), terminal: TerminalPanel(), directory: sessionDirectory).restore()
+        guard let restored = relaunched.documents.first, let restoredBuffer = restored.largeBuffer else { fatalError("The large tab comes back") }
+        precondition(restored.hasUnsavedChanges && restoredBuffer.bytes(in: 0..<restoredBuffer.count) == expected
+                     && restoredBuffer.text(in: restoredBuffer.lineRange(7)).hasPrefix("KEPT 2026"), "Edits come back, still unsaved")
         window.displayIfNeeded()
         window.contentView = nil
-        print(String(format: "PASS large file: %d MB opened in %.0f ms (%@), %d lines, Go to Line, selection, Copy, typing (%.2f ms a key), Return, delete, paste, input methods, undo/redo, save in %.0f ms",
+        print(String(format: "PASS large file: %d MB opened in %.0f ms (%@), %d lines, Go to Line, selection, Copy, typing (%.2f ms a key), Return, delete, paste, input methods, undo/redo, save in %.0f ms, unsaved edits kept across launches",
                      file.count >> 20, openTime, file.isCloned ? "APFS clone" : "read into memory", file.lineCount, typingTime, saveTime))
         try? FileManager.default.removeItem(at: url)
     }

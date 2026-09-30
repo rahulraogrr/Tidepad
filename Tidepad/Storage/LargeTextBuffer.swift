@@ -175,6 +175,55 @@ final class LargeTextBuffer: @unchecked Sendable {
         return removed
     }
 
+    // MARK: Journal
+
+    /// The buffer's edits, small enough to save every few seconds (SessionKeeper keeps unsaved work this
+    /// way): the pieces in order, each either a range of the file the buffer is based on, or bytes
+    /// stored in `data` (typed or pasted text, and text from before a save). Never the file itself.
+    struct Journal: Codable, Sendable {
+        struct Entry: Codable, Sendable {
+            /// True: a range of the file; false: a range of the journal's data.
+            let fromFile: Bool
+            let start: Int
+            let length: Int
+        }
+        var entries: [Entry]
+    }
+
+    func journal() -> (journal: Journal, data: Data) {
+        var entries: [Journal.Entry] = []
+        var data = Data()
+        for piece in pieces {
+            if piece.source === file {
+                entries.append(.init(fromFile: true, start: piece.start, length: piece.length))
+            } else {
+                entries.append(.init(fromFile: false, start: data.count, length: piece.length))
+                data.append(piece.source.base + piece.start, count: piece.length)
+            }
+        }
+        return (Journal(entries: entries), data)
+    }
+
+    /// A buffer with a journal's edits over `file`, which must be the file the journal was written for,
+    /// unchanged (callers check its modification date and size).
+    convenience init(file: LargeTextFile, journal: Journal, data: Data) throws {
+        self.init(file: file)
+        let fileEntries = journal.entries.filter(\.fromFile)
+        guard fileEntries.allSatisfy({ $0.start >= 0 && $0.length >= 0 && $0.start + $0.length <= file.count }),
+              journal.entries.filter({ !$0.fromFile }).allSatisfy({ $0.start >= 0 && $0.length >= 0 && $0.start + $0.length <= data.count })
+        else { throw CocoaError(.fileReadCorruptFile) }
+        let block = AddedBlock(capacity: max(1, data.count))
+        if !data.isEmpty { _ = block.append([UInt8](data)) }
+        pieces = journal.entries.filter { $0.length > 0 }.map { entry in
+            let source: any LargeTextSource = entry.fromFile ? file : block
+            return Piece(source: source, start: entry.start, length: entry.length,
+                         breaks: source.breaks(in: entry.start..<(entry.start + entry.length), byte: breakByte))
+        }
+        longestLine = max(longestLine, data.count)
+        rebuildSums(from: 0)
+        revision += 1
+    }
+
     // MARK: Reading
 
     /// Calls `body` with each stretch of contiguous bytes in `range` (in order, or in reverse), with its

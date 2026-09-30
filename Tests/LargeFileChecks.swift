@@ -6,7 +6,7 @@ import Foundation
     static func main() throws {
         try fileChecks()
         try bufferChecks()
-        print("Large file checks passed: sparse line index, line breaks, BOM, characters and words, UTF-16 refused; 3,000 random edits, lines after edits, undo, typing, find (inside pieces, across seams, backwards, any case, wrap), save and re-base.")
+        print("Large file checks passed: sparse line index, line breaks, BOM, characters and words, UTF-16 refused; 3,000 random edits, lines after edits, undo, typing, find (inside pieces, across seams, backwards, any case, wrap), journals, save and re-base.")
     }
     static func fileChecks() throws {
     let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
@@ -143,6 +143,13 @@ import Foundation
     b.replace(0..<0, with: b.pieces(for: Array("later".utf8)))
     precondition(snap.bytes(in: 0..<snap.count) == snapBytes && b.count == snap.count + 5, "snapshot")
     b.replace(0..<5, with: [])
+    // Journal: edits kept as file ranges plus added bytes, replayed over the same file.
+    let (journal, journalData) = b.journal()
+    let journalBytes = try JSONEncoder().encode(journal)
+    let replayed = try LargeTextBuffer(file: b.file, journal: try JSONDecoder().decode(LargeTextBuffer.Journal.self, from: journalBytes), data: journalData)
+    precondition(replayed.bytes(in: 0..<replayed.count) == b.bytes(in: 0..<b.count) && replayed.lineCount == b.lineCount, "Journal replay")
+    precondition(journalData.count < 100_000, "The journal holds the edits, not the file: \(journalData.count) bytes")
+    precondition((try? LargeTextBuffer(file: b.file, journal: LargeTextBuffer.Journal(entries: [.init(fromFile: true, start: 0, length: b.file.count + 1)]), data: Data())) == nil, "A journal that doesn't fit the file is refused")
     // Save and rebase
     let out = dir.appendingPathComponent("saved.txt")
     try b.write(to: out)
@@ -152,6 +159,9 @@ import Foundation
     b.rebase(on: try LargeTextFile(url: out))
     precondition(b.pieces.count == 1 && b.bytes(in: 0..<b.count) == content, "rebased")
     _ = b.replace(0..<0, with: removed) // old pieces still valid after rebase
+    let (afterSave, afterSaveData) = b.journal() // Pieces from before the save are stored as bytes.
+    let replayedAfterSave = try LargeTextBuffer(file: b.file, journal: afterSave, data: afterSaveData)
+    precondition(replayedAfterSave.bytes(in: 0..<replayedAfterSave.count) == b.bytes(in: 0..<b.count), "Journal after a save")
     // CRLF + BOM
     let c = try buffer("\u{FEFF}ab\r\ncd\r\nef", "c.txt")
     precondition(c.contentStart == 3 && c.lineCount == 3 && c.text(in: c.lineRange(1)) == "cd")
