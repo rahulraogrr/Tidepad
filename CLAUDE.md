@@ -51,8 +51,10 @@ repository, whoever (or whatever) writes it.
   64 KB overlap and 4 KB of context on each side (`LargeTextSearch`). One `NSString` for the whole
   file was rejected: 500 MB of UTF-8 becomes ~1 GB of UTF-16 and a full decode before the first match.
   Limits: a match can't be longer than 64 KB, and look-arounds see 4 KB. Plain text stays a byte
-  search (memchr/memmem). ^ and $ match at every line in both editors, as in Notepad++. Replace All
-  goes in as pieces over the file (nothing rewritten), capped at 100,000 like the normal editor.
+  search: memchr for the pattern's rarest byte, then a compare, because macOS's memmem runs at
+  ~1.3 GB/s while its memchr is vectorised; memmem only when the rarest byte is everywhere. ^ and $
+  match at every line in both editors, as in Notepad++. Replace All goes in as pieces over the file
+  (nothing rewritten), capped at 100,000 like the normal editor.
 - Large-file colours (2026-09-30): the normal editor's `LineLexer` and `SyntaxPalette`, lexing only
   the lines drawn (`LargeSyntaxEngine`). Lexer states at every 256th line are worked out by a
   low-priority background pass from the top; until it reaches a line, its state is guessed from 200

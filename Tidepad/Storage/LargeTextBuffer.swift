@@ -589,51 +589,87 @@ final class AddedBlock: LargeTextSource, @unchecked Sendable {
     }
 }
 
-/// Byte search in contiguous memory: memmem when case matters, otherwise the first byte in either
-/// case (memchr) and a comparison of the rest.
+/// Byte search in contiguous memory. It jumps between the places where the pattern's rarest byte
+/// appears (the Q in "REQUEST", not the E), with memchr, which is vectorised and far faster than
+/// memmem on macOS, and compares the whole pattern only there. When case is ignored, a letter is
+/// looked for in both cases. A pattern whose rarest byte is everywhere ("aaaa" in "aaaaaa…") falls
+/// back to memmem, which never slows down on repeats.
 enum ByteSearch {
     private static func lowercased(_ byte: UInt8) -> UInt8 { byte >= 0x41 && byte <= 0x5A ? byte | 0x20 : byte }
+    private static func uppercased(_ byte: UInt8) -> UInt8 { byte >= 0x61 && byte <= 0x7A ? byte - 0x20 : byte }
+
+    /// How common each byte is in text (logs, code, data), roughly.
+    private static let frequency: [Int] = {
+        var table = [Int](repeating: 8, count: 256) // Control characters and rarer punctuation.
+        for byte in 0x80...0xFF { table[byte] = 30 }
+        table[0x20] = 255; table[0x0A] = 60; table[0x09] = 40; table[0x0D] = 40
+        for byte in 0x30...0x39 { table[byte] = 70 }
+        for byte in 0x41...0x5A { table[byte] = 25 }
+        for (rank, letter) in "etaoinsrhldcumfpgwybvkxjqz".utf8.enumerated() { table[Int(letter)] = 200 - rank * 7 }
+        for byte in "\".,:=/-_()'".utf8 { table[Int(byte)] = 60 }
+        return table
+    }()
 
     static func first(_ pattern: [UInt8], in base: UnsafePointer<UInt8>, count: Int, matchCase: Bool,
                       cancelled: () -> Bool = { false }) -> Range<Int>? {
         let n = pattern.count
         guard n > 0, count >= n else { return nil }
-        if matchCase {
-            return pattern.withUnsafeBytes { needle -> Range<Int>? in
-                var from = 0
-                while from <= count - n {
-                    let blockEnd = min(count, from + 64 * 1_048_576 + n - 1) // Blocks, so a search can be cancelled.
-                    if let hit = memmem(base + from, blockEnd - from, needle.baseAddress!, n) {
-                        let found = UnsafeRawPointer(hit) - UnsafeRawPointer(base)
-                        return found..<(found + n)
-                    }
-                    if cancelled() { return nil }
-                    from = blockEnd - n + 1
-                }
-                return nil
-            }
+        let wanted = matchCase ? pattern : pattern.map(lowercased)
+        // The anchor: the pattern's rarest byte (counting both cases when case is ignored).
+        var anchor = 0, best = Int.max
+        for (k, byte) in wanted.enumerated() {
+            let other = matchCase ? byte : uppercased(byte)
+            let score = frequency[Int(byte)] + (other != byte ? frequency[Int(other)] : 0)
+            if score < best { best = score; anchor = k }
         }
-        let lower = pattern.map(lowercased)
-        let firstByte = lower[0], firstUpper = firstByte >= 0x61 && firstByte <= 0x7A ? firstByte - 0x20 : firstByte
-        let last = count - n
+        let byte = wanted[anchor], other = matchCase ? byte : uppercased(byte)
+        let lastHit = count - n + anchor // The anchor of a match lies in anchor...lastHit.
         func next(_ byte: UInt8, from: Int, through limit: Int) -> Int {
             guard from <= limit, let hit = memchr(base + from, Int32(byte), limit + 1 - from) else { return .max }
             return UnsafeRawPointer(hit) - UnsafeRawPointer(base)
         }
-        // The other case is only looked for up to the next first byte in this case, so a letter that
-        // never appears in upper case doesn't cost a scan to the end for every match (Replace All).
-        var position = 0, nextLower = -1, checked = 0
-        while position <= last {
-            if nextLower < position { nextLower = next(firstByte, from: position, through: last) }
-            let nextUpper = firstByte == firstUpper ? Int.max : next(firstUpper, from: position, through: min(last, nextLower))
-            let candidate = min(nextLower, nextUpper)
-            guard candidate <= last else { return nil }
-            var k = 1
-            while k < n && lowercased(base[candidate + k]) == lower[k] { k += 1 }
-            if k == n { return candidate..<(candidate + n) }
-            position = candidate + 1
-            checked += 1
-            if checked % 1_000_000 == 0 && cancelled() { return nil }
+        return wanted.withUnsafeBytes { needle -> Range<Int>? in
+            // The other case is only looked for up to the next hit in this case, so a letter that never
+            // appears in upper case doesn't cost a scan to the end for every match (Replace All).
+            var position = anchor, nextHit = -1, checked = 0
+            while position <= lastHit {
+                if nextHit < position { nextHit = next(byte, from: position, through: lastHit) }
+                let otherHit = other == byte ? Int.max : next(other, from: position, through: min(lastHit, nextHit))
+                let hit = min(nextHit, otherHit)
+                guard hit <= lastHit else { return nil }
+                let start = hit - anchor
+                if matchCase {
+                    if memcmp(base + start, needle.baseAddress!, n) == 0 { return start..<(start + n) }
+                } else {
+                    var k = 0
+                    while k < n && lowercased(base[start + k]) == wanted[k] { k += 1 }
+                    if k == n { return start..<(start + n) }
+                }
+                position = hit + 1
+                checked += 1
+                if checked % 65_536 == 0 {
+                    if cancelled() { return nil }
+                    // The anchor is everywhere: memmem copes better with repeats.
+                    if matchCase && checked * 16 > hit - anchor {
+                        return memmemFirst(needle, n, in: base, from: start + 1, count: count, cancelled: cancelled)
+                    }
+                }
+            }
+            return nil
+        }
+    }
+
+    private static func memmemFirst(_ needle: UnsafeRawBufferPointer, _ n: Int, in base: UnsafePointer<UInt8>, from start: Int,
+                                    count: Int, cancelled: () -> Bool) -> Range<Int>? {
+        var from = start
+        while from <= count - n {
+            let blockEnd = min(count, from + 64 * 1_048_576 + n - 1) // Blocks, so a search can be cancelled.
+            if let hit = memmem(base + from, blockEnd - from, needle.baseAddress!, n) {
+                let found = UnsafeRawPointer(hit) - UnsafeRawPointer(base)
+                return found..<(found + n)
+            }
+            if cancelled() { return nil }
+            from = blockEnd - n + 1
         }
         return nil
     }

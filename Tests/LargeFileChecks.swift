@@ -145,6 +145,20 @@ import Foundation
     var some = 0
     b.forEachLine(from: 10, count: 5) { line in some += 1; precondition(Array(line) == b.bytes(in: b.lineStart(10 + some - 1)..<b.lineStart(10 + some))); return some < 3 }
     precondition(some == 3, "forEachLine stops")
+    // Any case, and patterns whose rarest byte is everywhere.
+    for _ in 0..<200 {
+        let hay = b.bytes(in: 0..<b.count)
+        let start = Int.random(in: 0..<(hay.count - 8), using: &rng)
+        let pat = hay[start..<(start + Int.random(in: 1...8, using: &rng))].map { Bool.random(using: &rng) && $0 >= 0x61 && $0 <= 0x7A ? $0 - 0x20 : $0 }
+        let from = Int.random(in: 0...hay.count, using: &rng)
+        func lower(_ x: UInt8) -> UInt8 { x >= 0x41 && x <= 0x5A ? x | 0x20 : x }
+        var expected: Range<Int>?
+        var i = from; while i + pat.count <= hay.count { if (0..<pat.count).allSatisfy({ lower(hay[i + $0]) == lower(pat[$0]) }) { expected = i..<i+pat.count; break }; i += 1 }
+        precondition(b.find(pat, from: from, matchCase: false, wrap: false) == expected, "any-case fuzz \(pat) from \(from)")
+    }
+    let repeats = [UInt8](repeating: 0x61, count: 3_000_000) + Array("aaab".utf8)
+    precondition(repeats.withUnsafeBufferPointer { ByteSearch.first(Array("aaab".utf8), in: $0.baseAddress!, count: $0.count, matchCase: true) } == 3_000_000..<3_000_004,
+                 "A pattern of repeats falls back to memmem")
     // Snapshots don't follow later edits.
     let snap = b.snapshot(), snapBytes = snap.bytes(in: 0..<snap.count)
     b.replace(0..<0, with: b.pieces(for: Array("later".utf8)))
