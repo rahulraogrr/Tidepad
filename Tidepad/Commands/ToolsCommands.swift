@@ -16,10 +16,27 @@ private struct ToolsMenuItems: View {
         Group {
             documentTools
             Divider()
+            if OnDeviceModel.isSupported { aiTools; Divider() }
             Toggle("Terminal", isOn: Binding(get: { context.terminal.isVisible },
                                              set: { $0 ? context.terminal.show() : context.terminal.hide() }))
                 .keyboardShortcut("`", modifiers: .control)
             Button("New Terminal") { context.terminal.newTerminal() }
+        }
+    }
+
+    /// Apple's on-device model (see AIController): on the selection, or the caret's line (Explain) or
+    /// the whole document (Summarise) when nothing is selected.
+    private var aiTools: some View {
+        Menu("On-Device AI") {
+            Button("Explain") { context.ai.run(.explain) }.disabled(!context.hasDocument)
+            Button("Summarise") { context.ai.run(.summarise) }.disabled(!context.hasDocument)
+            Menu("Rewrite") {
+                ForEach(AIRewriteStyle.allCases, id: \.self) { style in
+                    Button(style.rawValue) { context.ai.run(.rewrite(style)) }
+                }
+            }.disabled(!context.hasDocument)
+            Divider()
+            Button("Write Regular Expression…") { context.ai.run(.regex("")) }
         }
     }
 

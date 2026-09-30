@@ -1,0 +1,47 @@
+import Foundation
+
+/// The on-device AI's prompts (Foundation only; the model itself is tried by hand, since it needs
+/// Apple Intelligence): cutting long text to fit, and cleaning up the model's answers.
+@main struct AIChecks {
+    static func main() {
+        // Cutting to fit: at the last line break past halfway, or at the limit.
+        let lines = (0..<2_000).map { "line \($0) of the log" }.joined(separator: "\n")
+        let (clipped, cut) = AIPrompt.clip(lines)
+        precondition(cut && clipped.count <= AIPrompt.inputLimit && lines.hasPrefix(clipped) && !clipped.hasSuffix("\n")
+                     && lines.dropFirst(clipped.count).hasPrefix("\n"), "Cut at a line break")
+        let oneLine = String(repeating: "x", count: 20_000)
+        precondition(AIPrompt.clip(oneLine).0.count == AIPrompt.inputLimit, "Cut a long line at the limit")
+        precondition(AIPrompt.clip("short") == ("short", false), "Short text kept")
+        precondition(AIPrompt.clip(String(repeating: "తెలుగు ", count: 3_000)).0.count == AIPrompt.inputLimit, "Characters, not bytes")
+
+        // Prompts carry the text and the language, and say what to do.
+        let explain = AIPrompt(.explain, text: "SELECT 1", language: "SQL")
+        precondition(explain.prompt.contains("SELECT 1") && explain.prompt.contains("(SQL)") && !explain.clipped)
+        precondition(AIPrompt(.summarise, text: lines).clipped, "Summarise notes when text was cut")
+        for style in AIRewriteStyle.allCases {
+            let rewrite = AIPrompt(.rewrite(style), text: "teh text")
+            precondition(rewrite.prompt == "teh text" && rewrite.instructions.contains("only the rewritten text"), "Rewrite \(style)")
+        }
+        precondition(AIPrompt(.regex("email addresses"), text: "").prompt.hasSuffix("email addresses"))
+        precondition(AIRequest.rewrite(.shorter).title == "Make Shorter" && AIRequest.regex("x").title == "Write Regular Expression")
+
+        // Answers cleaned up.
+        let patterns: [(String, String)] = [
+            ("\\d{3}-\\d{4}", "\\d{3}-\\d{4}"),
+            ("`\\bstatus=5\\d\\d\\b`", "\\bstatus=5\\d\\d\\b"),
+            ("```regex\n^ERROR.*$\n```", "^ERROR.*$"),
+            ("Regex: [A-Z]+", "[A-Z]+"),
+            ("\"foo|bar\"", "foo|bar"),
+            ("/^\\s+$/", "^\\s+$"),
+            ("  \n  a+b  \nExplanation: …", "a+b"),
+            ("", "")
+        ]
+        for (answer, expected) in patterns {
+            precondition(AIPrompt.cleanedPattern(answer) == expected, "Pattern from \(answer.debugDescription): \(AIPrompt.cleanedPattern(answer).debugDescription)")
+        }
+        precondition(AIPrompt.cleanedRewrite("```\nFixed text.\n```") == "Fixed text.")
+        precondition(AIPrompt.cleanedRewrite("```markdown\n- one\n- two\n```") == "- one\n- two")
+        precondition(AIPrompt.cleanedRewrite("  The text.\n") == "The text.")
+        print("AI checks passed: text cut to fit (at line breaks, by characters), prompts for Explain, Summarise, Rewrite and regular expressions, answers cleaned up.")
+    }
+}

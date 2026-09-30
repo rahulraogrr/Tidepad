@@ -9,6 +9,17 @@ final class CodeTextView: NSTextView {
     var openFiles: (([URL]) -> Void)?
     /// The link shown at a character index, if any. ⌘-click opens it with its default app.
     var linkAt: ((Int) -> URL?)?
+    /// Items put at the top of the right-click menu, above NSTextView's own (On-Device AI).
+    var contextMenuItems: (() -> [NSMenuItem])?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        let items = contextMenuItems?() ?? []
+        guard !items.isEmpty else { return menu }
+        for (index, item) in items.enumerated() { menu.insertItem(item, at: index) }
+        menu.insertItem(.separator(), at: items.count)
+        return menu
+    }
 
     override func insertNewline(_ sender: Any?) {
         guard lineBreak != "\n" else { super.insertNewline(sender); return }

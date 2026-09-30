@@ -16,6 +16,16 @@ repository, whoever (or whatever) writes it.
   300–500 MB files), and record why under "Decisions" below.
 - If something can't be done natively, stop and raise it. Don't work around it.
 
+## Rule no. 2: the lightest editor
+
+- Tidepad should be the lightest editor on the Mac: small app, instant launch, little memory, no work in
+  the background that the user didn't ask for (low-priority passes that finish, like large-file colours,
+  are the exception).
+- No bundled data, models or assets beyond what a feature needs; use what macOS already ships (the
+  on-device AI model is the system's, not ours).
+- Load and create things only when first used (lazy), and release them when done.
+- Before adding a feature, say what it costs in size, launch time and memory, and measure when unsure.
+
 ## Decisions
 
 - Documents: Tidepad uses its own `DocumentManager` built on `NSFilePresenter` / `NSFileCoordinator`
@@ -68,6 +78,14 @@ repository, whoever (or whatever) writes it.
   where they lie (`LargeTextBuffer.forEachLine`). Measured, optimised build: tokens 19 → 148 MB/s,
   background pass 15 → 240 MB/s (500 MB in about 2 s). Debug builds run such code 25–50× slower, so
   judge speed in a Release build. Parallel lexing was not needed.
+- On-device AI (2026-09-30): Tools ▸ On-Device AI and the right-click menus (Explain, Summarise,
+  Rewrite, Write Regular Expression) use Apple's Foundation Models framework (`LanguageModelSession`,
+  `SystemLanguageModel`), macOS 26+ with Apple Intelligence; nothing leaves the Mac. The framework is
+  weakly linked (`-weak_framework FoundationModels`) and every use is behind `#available`, so Tidepad
+  still runs on macOS 14, without the commands. NSTextView's own Writing Tools stay available in the
+  normal editor, but Tidepad's Rewrite uses Foundation Models so it also works in the large-file view
+  (a custom view Writing Tools can't reach) and shows the result before replacing. Input is cut to
+  8,000 characters for the model's ~4,096-token context.
 - Terminal panel (2026-09-28): the shell runs on a pseudo-terminal created with `forkpty` from macOS's
   C library, not Foundation's `Process`, because `Process` can't give the shell a controlling
   terminal, which job control, Ctrl-C and full-screen programs need; Terminal.app works the same way.

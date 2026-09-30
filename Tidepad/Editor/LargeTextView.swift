@@ -211,6 +211,40 @@ import SwiftUI
 
     var firstVisibleLine: Int { line(atY: visibleRect.minY) }
 
+    /// The lines on screen, as bytes with their line breaks.
+    var visibleBytes: Range<Int> {
+        let first = firstVisibleLine, last = line(atY: visibleRect.maxY)
+        let end = last + 1 < buffer.lineCount ? buffer.lineStart(last + 1) : buffer.count
+        return buffer.lineStart(first)..<end
+    }
+
+    /// Text from elsewhere with its line breaks changed to the file's.
+    func lineBreakText(_ text: String) -> String {
+        let unix = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        switch buffer.lineBreak {
+        case .lf: return unix
+        case .crlf: return unix.replacingOccurrences(of: "\n", with: "\r\n")
+        case .cr: return unix.replacingOccurrences(of: "\n", with: "\r")
+        }
+    }
+
+    // MARK: Right-click menu
+
+    /// Items put at the top of the right-click menu (On-Device AI).
+    var contextMenuItems: (() -> [NSMenuItem])?
+
+    /// The right-click menu: Tidepad's items, then Cut, Copy and Paste, as in a text view.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        let items = contextMenuItems?() ?? []
+        items.forEach(menu.addItem)
+        if !items.isEmpty { menu.addItem(.separator()) }
+        for (title, action) in [("Cut", #selector(cut(_:))), ("Copy", #selector(copy(_:))), ("Paste", #selector(paste(_:)))] {
+            menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
+        }
+        return menu
+    }
+
     /// Whether a line is long enough to be laid out in slices.
     private func isLong(_ range: Range<Int>) -> Bool { range.count > Self.longLineLimit }
 

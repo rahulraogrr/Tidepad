@@ -5,6 +5,8 @@ import Observation
 @MainActor @Observable final class WorkspaceCommandContext {
     @ObservationIgnored weak var window: NSWindow?
     @ObservationIgnored lazy var search = SearchController(context: self)
+    /// Tools ▸ On-Device AI (Apple's on-device model).
+    @ObservationIgnored lazy var ai = AIController(context: self)
     let documents: DocumentManager
     let sessions: EditorSessionStore
     let preferences: EditorPreferences

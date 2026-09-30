@@ -259,9 +259,12 @@ import Combine
     func existingSession(for document: EditorDocument) -> EditorSession? { sessions[document.id] }
     private var largeViews: [UUID: LargeTextView] = [:]
     /// The large-file view for a large file's tab, created on first use and kept while the tab is open.
+    /// Items added at the top of the editors' right-click menus (the On-Device AI submenu).
+    var contextMenuItems: (() -> [NSMenuItem])?
     func largeView(for document: EditorDocument, buffer: LargeTextBuffer, options: EditorDisplayOptions) -> LargeTextView {
         if let view = largeViews[document.id] { return view }
         let view = LargeTextView(document: document, buffer: buffer, options: options)
+        view.contextMenuItems = { [weak self] in self?.contextMenuItems?() ?? [] }
         largeViews[document.id] = view
         return view
     }
@@ -271,6 +274,7 @@ import Combine
         let session = EditorSession(document: document)
         session.textView.registerForDraggedTypes([.fileURL])
         session.textView.openFiles = { [weak self] urls in self?.openFiles?(urls) }
+        session.textView.contextMenuItems = { [weak self] in self?.contextMenuItems?() ?? [] }
         session.selectionChanged = { [weak self] session in self?.selectionChanged?(session) }
         sessions[document.id] = session
         sessionCreated?(session)

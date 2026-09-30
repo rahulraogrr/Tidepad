@@ -37,6 +37,8 @@ import AppKit
         // Claude Code connects to Tidepad as it does to VS Code (see ClaudeCodeConnection).
         claude.start()
         sessions.selectionChanged = { [weak self] session in self?.claude.selectionChanged(in: session) }
+        // Right-click ▸ On-Device AI in both editors.
+        sessions.contextMenuItems = { [weak self] in self?.commandContext.ai.menuItems() ?? [] }
         // Reopen the last folder, unless Tidepad was launched to open one.
         if project.url == nil { project.restoreLastFolder() }
         if let folder = project.url { commandContext.search.directory = folder.path }
