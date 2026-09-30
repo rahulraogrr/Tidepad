@@ -33,6 +33,51 @@ final class WebSocketInbox: @unchecked Sendable {
         while Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
     }
 
+    /// A file over the threshold opens in the large-file view: mapped, not read into a String; lines,
+    /// Go to Line, keyboard moves, selection, Copy and the status bar work; editing stays off.
+    @MainActor static func checkLargeFile(output: URL) throws {
+        let url = output.appendingPathComponent("large.log")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: url)
+        let block = Data((0..<10_000).map { "2026-09-30 12:00:00 INFO request \($0) café 中文 status=200\n" }.joined().utf8)
+        var written = 0
+        while written <= LargeTextFile.threshold { handle.write(block); written += block.count }
+        try handle.close()
+        let started = Date()
+        guard case .large(let file) = try TextFileService().open(url) else { fatalError("A large file must open in the large-file view") }
+        let openTime = Date().timeIntervalSince(started) * 1000
+        let document = OpenedFile.large(file).makeDocument()
+        precondition(document.isLarge && document.text.isEmpty && document.lineCount == file.lineCount, "Large document")
+        let view = LargeTextView(document: document, file: file, options: EditorDisplayOptions())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = view.scrollView
+        view.pasteboard = NSPasteboard(name: NSPasteboard.Name("TidepadLargeChecks"))
+        window.makeFirstResponder(view)
+        window.displayIfNeeded()
+        precondition(view.goToLine(12_346) && document.cursorLine == 12_346 && document.cursorColumn == 1, "Go to Line")
+        precondition(!view.goToLine(0) && !view.goToLine(file.lineCount + 1), "Go to Line bounds")
+        view.moveToEndOfLine(nil)
+        let line = file.lineRange(12_345)
+        precondition(view.selectedRange == line.upperBound..<line.upperBound && document.cursorColumn == file.characterCount(in: line) + 1, "End of line")
+        view.moveToBeginningOfLineAndModifySelection(nil)
+        view.copy(nil)
+        precondition(view.pasteboard.string(forType: .string) == "2026-09-30 12:00:00 INFO request 2345 café 中文 status=200", "Select and copy: \(view.pasteboard.string(forType: .string) ?? "")")
+        view.moveDown(nil)
+        precondition(document.cursorLine == 12_347, "Move down")
+        view.moveToEndOfDocument(nil)
+        precondition(document.cursorLine == file.lineCount && view.selectedRange == file.count..<file.count, "End of document")
+        window.displayIfNeeded()
+        let match = file.find(Array("request 9999 café".utf8), from: 0)!
+        view.select(match)
+        precondition(document.cursorLine == 10_000 && view.selectedRange == match, "Reveal a match")
+        view.insertText("x")
+        precondition(document.lineCount == file.lineCount && !document.hasUnsavedChanges, "Read-only")
+        window.contentView = nil
+        print(String(format: "PASS large file: %d MB opened in %.0f ms (%@), %d lines, Go to Line, moves, selection, Copy, read-only",
+                     file.count >> 20, openTime, file.isCloned ? "APFS clone" : "read into memory", file.lineCount))
+        try? FileManager.default.removeItem(at: url)
+    }
+
     /// Return types the document's line break, so a Windows (CRLF) file stays CRLF, and a document
     /// without line breaks keeps the line ending chosen for it.
     @MainActor static func checkLineEndings() {
@@ -480,6 +525,7 @@ final class WebSocketInbox: @unchecked Sendable {
         checkLinksAndLargeFiles()
         checkPrinting()
         checkLineEndings()
+        try checkLargeFile(output: output)
         checkSearchEditing()
         checkTextCommands()
         try checkExternalChanges(output: output)

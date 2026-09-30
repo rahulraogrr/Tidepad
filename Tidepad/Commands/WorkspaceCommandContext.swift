@@ -24,11 +24,17 @@ import Observation
     }
 
     var document: EditorDocument? { documents.selectedDocument }
+    /// The selected tab's NSTextView editor; nil for a large file (see `largeView`).
     var session: EditorSession? {
-        guard let document else { return nil }
+        guard let document, !document.isLarge else { return nil }
         return sessions.session(for: document)
     }
     var hasDocument: Bool { document != nil }
+    /// The selected tab's large-file view, when it shows a large file.
+    var largeView: LargeTextView? {
+        guard let document, document.isLarge else { return nil }
+        return sessions.existingLargeView(for: document)
+    }
 
     /// Native title bar: the selected file's proxy icon (⌘-click for its path, drag to share) and the
     /// unsaved-changes dot in the close button.
@@ -62,7 +68,7 @@ import Observation
     /// The text itself doesn't change. If a character can't be written in the encoding, nothing
     /// changes and Tidepad says which one, so converting never loses text.
     func convertEncoding(to choice: TextEncodingChoice) {
-        guard let document, document.encodingChoice != choice else { return }
+        guard let document, !document.isLarge, document.encodingChoice != choice else { return }
         if let character = choice.firstUnwritableCharacter(in: document.text) {
             placeholder("Can’t Convert to \(choice.name)", detail: "“\(character)” can’t be written in \(choice.name), so converting would lose text. Choose an encoding that can hold every character, such as UTF-8.")
             return
@@ -75,7 +81,7 @@ import Observation
     /// Encoding ▸ Reopen with Encoding: reads the file again in another encoding, for a file whose
     /// encoding was guessed wrongly (Notepad++'s "Encode in"). Unsaved changes are lost, so it asks first.
     func reopen(with choice: TextEncodingChoice) {
-        guard let document, document.fileURL != nil else { return }
+        guard let document, !document.isLarge, document.fileURL != nil else { return }
         if document.hasUnsavedChanges {
             let alert = NSAlert()
             alert.messageText = "Reopen “\(document.displayName)” as \(choice.name)?"

@@ -91,6 +91,7 @@ actor CompiledSearchCache {
     func cancelFiles() { progress?.cancel(); fileTask?.cancel() }
 
     func navigate(backwards: Bool = false) {
+        if let view = context?.largeView { navigateLarge(view, backwards: backwards); return }
         guard let context, let session = context.session else { return }
         let document = session.document, selection = session.textView.selectedRange()
         let snapshot = SearchSnapshot(text: document.text, revision: document.revision)
@@ -120,7 +121,34 @@ actor CompiledSearchCache {
         }
     }
 
+    /// Find Next/Previous in the large-file view: a byte search on the mapped file, in the background
+    /// (see LargeTextFile.find). Normal and Extended modes, with Match case and Wrap around.
+    private func navigateLarge(_ view: LargeTextView, backwards: Bool) {
+        guard query.mode != .regex, !query.wholeWord else {
+            message = "Regular expressions and whole-word search aren't available for large files yet."; return
+        }
+        let text: String
+        do { text = query.mode == .extended ? try SearchEngine.decode(query.text) : query.text } catch { message = error.localizedDescription; return }
+        guard !text.isEmpty else { return }
+        let file = view.file, pattern = Array(text.utf8), selection = view.selectedRange
+        let matchCase = query.matchCase, wrap = query.wrap
+        cancelDocumentSearch(); let token = generation; busy = true; remember()
+        message = "Searching…"
+        task = Task { [weak self] in
+            let worker = Task.detached(priority: .userInitiated) {
+                file.find(pattern, from: backwards ? selection.lowerBound : selection.upperBound, backwards: backwards,
+                          matchCase: matchCase, wrap: wrap, cancelled: { Task.isCancelled })
+            }
+            let match = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            guard let self, self.generation == token else { return }
+            self.busy = false
+            guard !Task.isCancelled, view.file === file else { return }
+            if let match { view.select(match); self.message = "Match found." } else { self.message = "No match found." }
+        }
+    }
+
     func findAll(countOnly: Bool = false) {
+        if context?.document?.isLarge == true { message = "Find All isn't available for large files yet."; return }
         guard let context, let session = context.session else { return }
         let document = session.document, snapshot = SearchSnapshot(text: session.document.text, revision: session.document.revision)
         let query = query, cache = cache, id = document.id, name = document.displayName, url = document.fileURL
@@ -158,6 +186,7 @@ actor CompiledSearchCache {
     }
 
     func replace(all: Bool = false, inSelection: Bool = false, findNext: Bool = false) {
+        if context?.document?.isLarge == true { message = "Large files are read-only in this version of Tidepad."; return }
         guard let context, let session = context.session else { return }
         let document = session.document, snapshot = SearchSnapshot(text: session.document.text, revision: session.document.revision)
         let selection = session.textView.selectedRange()
@@ -273,14 +302,23 @@ actor CompiledSearchCache {
     }
 
     func showGoToLine() {
-        guard let session = context?.session else { return }
+        guard let context, let document = context.document else { return }
+        // The text view's Go to Line, or the large-file view's.
+        let target: (String) -> Bool, focus: NSView
+        if let view = context.largeView {
+            target = { input in Int(input.trimmingCharacters(in: .whitespacesAndNewlines)).map { view.goToLine($0) } ?? false }
+            focus = view
+        } else if let session = context.session {
+            target = { session.goToLine($0) }
+            focus = session.textView
+        } else { return }
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 300, height: 135), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         panel.title = "Go to Line"; panel.isReleasedWhenClosed = false
-        panel.contentView = NSHostingView(rootView: GoToLineView(session: session, go: { [weak self, weak panel] input in
-            guard self?.context?.document?.id == session.document.id else { return false }
-            guard session.goToLine(input) else { return false }
+        panel.contentView = NSHostingView(rootView: GoToLineView(document: document, go: { [weak self, weak panel] input in
+            guard self?.context?.document?.id == document.id else { return false }
+            guard target(input) else { return false }
             panel?.close(); self?.context?.window?.makeKeyAndOrderFront(nil)
-            self?.context?.window?.makeFirstResponder(session.textView); return true
+            self?.context?.window?.makeFirstResponder(focus); return true
         }, cancel: { [weak panel] in panel?.close() }))
         linePanel?.close(); linePanel = panel; panel.center(); panel.makeKeyAndOrderFront(nil)
     }

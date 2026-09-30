@@ -98,6 +98,14 @@ import Observation
         let previous = manager.selectedID
         manager.open([URL(fileURLWithPath: path)])
         guard let document = document(at: path) else { return "Couldn't open \(path)" }
+        if document.isLarge {
+            // A large file: show its tab and go to the line; text ranges would mean searching 500 MB.
+            manager.selectedID = makeFrontmost ? document.id : (previous ?? document.id)
+            if makeFrontmost, let line = startLine {
+                DispatchQueue.main.async { [weak self] in self?.sessions.existingLargeView(for: document)?.goToLine(line) }
+            }
+            return nil
+        }
         guard makeFrontmost else {
             manager.selectedID = previous ?? document.id
             return nil
@@ -116,7 +124,7 @@ import Observation
     }
 
     func currentSelection() -> IDESelection? {
-        manager.selectedDocument.flatMap { Self.selection(in: sessions.session(for: $0)) }
+        manager.selectedDocument.flatMap { $0.isLarge ? nil : Self.selection(in: sessions.session(for: $0)) }
     }
 
     func latestSelection() -> IDESelection? { latest ?? currentSelection() }
@@ -144,7 +152,8 @@ import Observation
     func reviewDiff(oldPath: String, newPath: String, newContents: String, tabName: String,
                     decided: @escaping @MainActor (Bool, String) -> Void) {
         // Compare with what's in the editor if the file is open (it may have unsaved edits), else the file.
-        let old = document(at: oldPath)?.text ?? (try? String(contentsOfFile: oldPath, encoding: .utf8)) ?? ""
+        let open = document(at: oldPath)
+        let old = (open?.isLarge == false ? open?.text : nil) ?? (try? String(contentsOfFile: oldPath, encoding: .utf8)) ?? ""
         reviews[tabName]?.dismiss()
         let review = DiffReviewWindow(tabName: tabName, path: newPath, old: old, new: newContents) { [weak self] accepted in
             self?.reviews[tabName] = nil

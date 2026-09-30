@@ -24,6 +24,9 @@
 <p>Your settings, such as the theme, font, tab size and which bars are shown, are remembered too.</p>
 <h2>Changes made by other apps</h2>
 <p>If another app changes a file you have open and you haven't edited it, Tidepad reloads it. If you have unsaved changes, Tidepad asks what to do.</p>
+<h2>Large files</h2>
+<p>Files of 64 MB or more, such as big logs, data exports or database dumps, open in Tidepad's large-file view. They open almost at once whatever their size, even 500 MB, because Tidepad reads only the part on screen. You can scroll, go to any line (<kbd>⌘</kbd><kbd>L</kbd>), select and copy text, and find text (<kbd>⌘</kbd><kbd>F</kbd>, then <kbd>⌘</kbd><kbd>G</kbd> for the next match). The status bar shows "large file, read-only".</p>
+<p>In this version, large files are read-only, and Find works with plain text (not regular expressions or whole words). Large files must be UTF-8.</p>
 <h2>Encodings</h2>
 <p>Tidepad detects each file's encoding when it opens it and shows it in the status bar. The Encoding menu ticks it too.</p>
 <p><strong>Convert:</strong> choose another encoding in the Encoding menu (or under Other Encodings) to save the document in it from now on. The text stays the same. If some characters can't be written in that encoding, for example Chinese text in Western (Windows 1252), Tidepad says so and changes nothing.</p>

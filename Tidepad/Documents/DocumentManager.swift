@@ -70,7 +70,7 @@ import Observation
                     selectedID = existing.id; continue
                 }
                 do {
-                    let loaded = try await Task.detached(priority: .userInitiated) { try TextFileService().load(url) }.value
+                    let loaded = try await Task.detached(priority: .userInitiated) { try TextFileService().open(url) }.value
                     acceptOpened(loaded.makeDocument())
                 } catch { show(error) }
             }
@@ -119,6 +119,16 @@ import Observation
     }
 
     @discardableResult func save(_ document: EditorDocument, saveAs: Bool = false) -> Bool {
+        if document.isLarge {
+            // Read-only for now: there's nothing to save, and Save As would copy 500 MB of text.
+            if saveAs {
+                let alert = NSAlert()
+                alert.messageText = "Save As isn't available for large files yet."
+                alert.informativeText = "Files larger than \(LargeTextFile.threshold / 1_048_576) MB open read-only in this version of Tidepad."
+                alert.runModal()
+            }
+            return !document.hasUnsavedChanges
+        }
         var destination = document.fileURL
         if saveAs || destination == nil {
             let panel = NSSavePanel()
@@ -332,6 +342,13 @@ import Observation
     /// (Encoding ▸ Reopen with Encoding).
     func reloadFromDisk(_ document: EditorDocument, as encoding: TextEncodingChoice? = nil) throws {
         guard let url = document.fileURL else { return }
+        if document.isLarge {
+            // Map a fresh clone of the changed file; the view keeps its place (see LargeTextView.replaceFile).
+            document.largeFile = try LargeTextFile(url: url)
+            document.diskStamp = FileStamp(url)
+            pendingExternalChanges.remove(document.id)
+            return
+        }
         var coordinationError: NSError?
         var result: Result<LoadedText, Error>?
         NSFileCoordinator(filePresenter: presenters[document.id]).coordinate(

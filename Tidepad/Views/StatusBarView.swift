@@ -6,7 +6,7 @@ struct StatusBarView: View {
     var body: some View {
         let _ = EditorDiagnostics.view("StatusBarView")
         HStack(spacing: 0) {
-            Text(document?.languageName ?? "No document")
+            Text(document.map { $0.isLarge ? "\($0.languageName) · large file, read-only" : $0.languageName } ?? "No document")
                 .lineLimit(1).padding(.horizontal, TidepadMetrics.statusHorizontalPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
             section("length: \(document?.utf16Length ?? 0)  lines: \(document?.lineCount ?? 0)")
@@ -17,7 +17,11 @@ struct StatusBarView: View {
                 .help("Selected Unicode characters")
             section(document?.lineEnding.statusName ?? "Unix (LF)")
             section(document?.encodingName ?? "UTF-8")
-            section("INS").help("Insert mode. Overwrite mode is not available.")
+            if document?.isLarge == true {
+                section("R/O").help("Large files open read-only in this version of Tidepad.")
+            } else {
+                section("INS").help("Insert mode. Overwrite mode is not available.")
+            }
         }
         .font(.system(size: TidepadMetrics.statusFontSize)).monospacedDigit()
         .foregroundStyle(Color(nsColor: TidepadTheme.chromeText))

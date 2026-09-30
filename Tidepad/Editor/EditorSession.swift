@@ -256,6 +256,15 @@ import Combine
     var sessionCreated: ((EditorSession) -> Void)?
     /// The tab's editor if it has been created, without creating one.
     func existingSession(for document: EditorDocument) -> EditorSession? { sessions[document.id] }
+    private var largeViews: [UUID: LargeTextView] = [:]
+    /// The large-file view for a large file's tab, created on first use and kept while the tab is open.
+    func largeView(for document: EditorDocument, file: LargeTextFile, options: EditorDisplayOptions) -> LargeTextView {
+        if let view = largeViews[document.id] { return view }
+        let view = LargeTextView(document: document, file: file, options: options)
+        largeViews[document.id] = view
+        return view
+    }
+    func existingLargeView(for document: EditorDocument) -> LargeTextView? { largeViews[document.id] }
     func session(for document: EditorDocument) -> EditorSession {
         if let session = sessions[document.id] { return session }
         let session = EditorSession(document: document)
@@ -268,6 +277,10 @@ import Combine
     }
     func applyDisplayOptions(_ options: EditorDisplayOptions) {
         sessions.values.forEach { $0.applyDisplayOptions(options) }
+        largeViews.values.forEach { $0.applyDisplayOptions(options) }
     }
-    func retainDocuments(_ ids: Set<UUID>) { sessions = sessions.filter { ids.contains($0.key) } }
+    func retainDocuments(_ ids: Set<UUID>) {
+        sessions = sessions.filter { ids.contains($0.key) }
+        largeViews = largeViews.filter { ids.contains($0.key) }
+    }
 }

@@ -6,7 +6,6 @@ import AppKit
 struct EditorToolbar: View {
     let context: WorkspaceCommandContext
     private var manager: DocumentManager { context.documents }
-    private var sessions: EditorSessionStore { context.sessions }
 
     var body: some View {
         let _ = EditorDiagnostics.view("EditorToolbar")
@@ -26,12 +25,14 @@ struct EditorToolbar: View {
             tool("Print… (⌘P)", icon: "printer.fill", tint: TidepadTheme.toolbarClipboard) { context.printDocument() }
                 .disabled(noDocument)
             separator
-            tool("Cut (⌘X)", icon: "scissors", tint: TidepadTheme.toolbarClipboard) { editor?.cut(nil) }
-            tool("Copy (⌘C)", icon: "doc.on.doc", tint: TidepadTheme.toolbarClipboard) { editor?.copy(nil) }
-            tool("Paste (⌘V)", icon: "doc.on.clipboard", tint: TidepadTheme.toolbarClipboard) { editor?.paste(nil) }
+            // Clipboard and undo go through the responder chain, to whichever editor has focus
+            // (the text view or the large-file view), as the Edit menu does.
+            tool("Cut (⌘X)", icon: "scissors", tint: TidepadTheme.toolbarClipboard) { send(#selector(NSText.cut(_:))) }
+            tool("Copy (⌘C)", icon: "doc.on.doc", tint: TidepadTheme.toolbarClipboard) { send(#selector(NSText.copy(_:))) }
+            tool("Paste (⌘V)", icon: "doc.on.clipboard", tint: TidepadTheme.toolbarClipboard) { send(#selector(NSText.paste(_:))) }
             separator
-            tool("Undo (⌘Z)", icon: "arrow.uturn.backward", tint: TidepadTheme.toolbarUndo) { editor?.undoManager?.undo() }
-            tool("Redo (⇧⌘Z)", icon: "arrow.uturn.forward", tint: TidepadTheme.toolbarUndo) { editor?.undoManager?.redo() }
+            tool("Undo (⌘Z)", icon: "arrow.uturn.backward", tint: TidepadTheme.toolbarUndo) { send(Selector(("undo:"))) }
+            tool("Redo (⇧⌘Z)", icon: "arrow.uturn.forward", tint: TidepadTheme.toolbarUndo) { send(Selector(("redo:"))) }
             separator
             tool("Find… (⌘F)", icon: "magnifyingglass", tint: TidepadTheme.toolbarFind) { context.find(.showFindInterface) }
                 .disabled(noDocument)
@@ -47,8 +48,8 @@ struct EditorToolbar: View {
         .overlay(alignment: .bottom) { ChromeSeparator() }
     }
 
-    private var editor: NSTextView? {
-        manager.selectedDocument.map { sessions.session(for: $0).textView }
+    private func send(_ action: Selector) {
+        if !NSApp.sendAction(action, to: nil, from: nil) { NSSound.beep() }
     }
     private var separator: some View {
         ChromeSeparator(vertical: true).frame(height: TidepadMetrics.toolbarSeparatorHeight)

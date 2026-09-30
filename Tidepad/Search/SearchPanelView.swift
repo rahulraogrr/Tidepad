@@ -93,7 +93,7 @@ struct SearchPanelView: View {
 }
 
 struct GoToLineView: View {
-    let session: EditorSession
+    let document: EditorDocument
     let go: (String) -> Bool
     let cancel: () -> Void
     @State private var input = ""
@@ -102,11 +102,11 @@ struct GoToLineView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack { Text("Line:"); TextField("Line number", text: $input).focused($focused) }
-            Text("Valid range: 1 – \(session.document.lineCount)").foregroundStyle(.secondary)
+            Text("Valid range: 1 – \(document.lineCount)").foregroundStyle(.secondary)
             if error { Text("Enter a valid line for the active document.").foregroundStyle(.red) }
             HStack { Spacer(); Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
                 Button("Go") { error = !go(input) }.keyboardShortcut(.defaultAction) }
         }.font(.system(size: 11)).controlSize(.small).padding(12).frame(width: 300)
-            .onAppear { input = "\(session.document.cursorLine)"; focused = true }
+            .onAppear { input = "\(document.cursorLine)"; focused = true }
     }
 }

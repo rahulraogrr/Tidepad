@@ -43,8 +43,42 @@ struct LoadedText: Sendable {
     }
 }
 
+/// A file opened for a tab: as text, or in the large-file view when it's at least LargeTextFile.threshold.
+enum OpenedFile: Sendable {
+    case text(LoadedText)
+    case large(LargeTextFile)
+
+    func makeDocument() -> EditorDocument {
+        switch self {
+        case .text(let loaded): return loaded.makeDocument()
+        case .large(let file):
+            let ending: LineEnding
+            switch file.lineBreak {
+            case .lf: ending = .lf
+            case .crlf: ending = .crlf
+            case .cr: ending = .cr
+            }
+            let document = EditorDocument(fileURL: file.url, displayName: file.url.lastPathComponent, text: "",
+                                          encoding: .utf8, lineEnding: ending)
+            document.hasByteOrderMark = file.hasByteOrderMark
+            document.largeFile = file
+            document.diskStamp = FileStamp(file.url)
+            document.lineCount = file.lineCount
+            document.utf16Length = file.count - file.contentStart
+            return document
+        }
+    }
+}
+
 struct TextFileService {
-    func read(_ url: URL) throws -> EditorDocument { try load(url).makeDocument() }
+    func read(_ url: URL) throws -> EditorDocument { try open(url).makeDocument() }
+
+    /// Opens a file for a tab, in the large-file view if it's large.
+    func open(_ url: URL) throws -> OpenedFile {
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+        if size >= LargeTextFile.threshold { return .large(try LargeTextFile(url: url)) }
+        return .text(try load(url))
+    }
 
     /// Reads a file. Its encoding is detected, unless `choice` names one (Encoding ▸ Reopen with Encoding).
     func load(_ url: URL, as choice: TextEncodingChoice? = nil) throws -> LoadedText {
@@ -88,6 +122,8 @@ struct TextFileService {
     }
 
     func write(_ document: EditorDocument, to url: URL) throws {
+        // A large file's text isn't held in `text`; saving it comes with editing in the large-file view.
+        guard !document.isLarge else { throw CocoaError(.fileWriteUnknown) }
         guard var data = document.text.data(using: document.encoding, allowLossyConversion: false) else {
             throw CocoaError(.fileWriteInapplicableStringEncoding)
         }

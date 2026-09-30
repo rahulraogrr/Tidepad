@@ -80,6 +80,10 @@ enum LineEnding: String, CaseIterable {
     }
     var encoding: String.Encoding
     var hasByteOrderMark = false
+    /// A file too large for NSTextView (see LargeTextFile), shown in the large-file view instead.
+    /// Its text is never held as a String: `text` stays empty. Read-only for now.
+    var largeFile: LargeTextFile?
+    var isLarge: Bool { largeFile != nil }
     var languageOverride: SyntaxLanguage?
     var lineEnding: LineEnding
     var utf16Length = 0

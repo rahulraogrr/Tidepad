@@ -151,7 +151,7 @@ import AppKit
                 document.hasByteOrderMark = tab.byteOrderMark
                 if tab.modified != nil || tab.size != nil { document.diskStamp = FileStamp(modified: tab.modified, size: tab.size) }
                 document.markUnsaved()
-            } else if let url, let loaded = try? TextFileService().load(url) {
+            } else if let url, let loaded = try? TextFileService().open(url) {
                 document = loaded.makeDocument()
             } else {
                 continue // The file is gone and there was nothing unsaved.
