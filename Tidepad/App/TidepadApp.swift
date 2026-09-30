@@ -5,11 +5,16 @@ import AppKit
     @NSApplicationDelegateAdaptor(TidepadAppDelegate.self) private var delegate
 
     var body: some Scene {
-        Window("Tidepad", id: "workspace") {
+        Window("TidePad", id: "workspace") {
             WorkspaceView(manager: delegate.manager, windowDelegate: delegate, sessions: delegate.sessions, preferences: delegate.preferences)
         }
         .defaultSize(width: 1000, height: 700)
         .commands { TidepadCommands(context: delegate.commandContext) }
+        // Tidepad ▸ About Tidepad.
+        Window("About TidePad", id: AboutView.windowID) { AboutView() }
+            .windowResizability(.contentSize)
+            .defaultPosition(.center)
+            .commandsRemoved() // Not listed in the Window menu, like the standard About panel.
         // Tidepad ▸ Settings… (⌘,).
         Settings { PreferencesView(context: delegate.commandContext) }
     }
@@ -21,7 +26,6 @@ import AppKit
     let preferences = EditorPreferences()
     let project = ProjectFolder()
     let terminal = TerminalPanel()
-    lazy var claude = ClaudeCodeConnection(manager: manager, sessions: sessions, project: project)
     lazy var keeper = SessionKeeper(manager: manager, sessions: sessions, terminal: terminal)
     lazy var commandContext = WorkspaceCommandContext(documents: manager, sessions: sessions, preferences: preferences,
                                                       project: project, terminal: terminal)
@@ -29,14 +33,7 @@ import AppKit
     func applicationDidFinishLaunching(_ notification: Notification) {
         sessions.openFiles = { [weak self] urls in self?.open(urls) }
         // Find in Files searches the open folder.
-        project.didOpen = { [weak self] folder in
-            self?.commandContext.search.directory = folder.path
-            self?.claude.folderChanged()
-        }
-        project.didClose = { [weak self] in self?.claude.folderChanged() }
-        // Claude Code connects to Tidepad as it does to VS Code (see ClaudeCodeConnection).
-        claude.start()
-        sessions.selectionChanged = { [weak self] session in self?.claude.selectionChanged(in: session) }
+        project.didOpen = { [weak self] folder in self?.commandContext.search.directory = folder.path }
         // Right-click ▸ On-Device AI in both editors.
         sessions.contextMenuItems = { [weak self] in self?.commandContext.ai.menuItems() ?? [] }
         // Reopen the last folder, unless Tidepad was launched to open one.
@@ -47,7 +44,6 @@ import AppKit
             self?.project.url ?? self?.manager.selectedDocument?.fileURL?.deletingLastPathComponent()
                 ?? FileManager.default.homeDirectoryForCurrentUser
         }
-        terminal.environment = { [weak self] in self?.claude.terminalEnvironment ?? [:] }
         // The saved theme, then the last session: tabs, unsaved text, the terminal panel.
         NSApp.appearance = preferences.appearance.appearance
         sessions.sessionCreated = { [weak self] session in self?.keeper.sessionCreated(session) }
@@ -76,8 +72,6 @@ import AppKit
         return true
     }
     func application(_ application: NSApplication, open urls: [URL]) { open(urls) }
-    /// Removes the lock file, so Claude Code doesn't offer to connect to a Tidepad that has quit.
-    func applicationWillTerminate(_ notification: Notification) { claude.stop() }
 
     /// Folders open as the project (the first one, if several); files open in tabs.
     func open(_ urls: [URL]) {

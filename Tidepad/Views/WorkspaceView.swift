@@ -32,7 +32,7 @@ struct WorkspaceView: View {
         // The full path of the current file, as Notepad++ shows it; ⌘-click the icon beside it for the
         // folders above it. Untitled tabs show their name.
         .navigationTitle(manager.selectedDocument.map { $0.fileURL?.path ?? $0.displayName }
-                         ?? (project.url == nil ? "Tidepad" : project.name))
+                         ?? (project.url == nil ? "TidePad" : project.name))
         .onChange(of: manager.selectedDocument?.fileURL, initial: true) { _, _ in windowDelegate.commandContext.syncWindowDocumentState() }
         .onChange(of: manager.documents.contains { $0.hasUnsavedChanges }, initial: true) { _, _ in
             windowDelegate.commandContext.syncWindowDocumentState()
@@ -44,7 +44,7 @@ struct WorkspaceView: View {
         VSplitView {
             editorArea.frame(minHeight: TidepadMetrics.editorMinimumHeight, maxHeight: .infinity)
             if terminal.isVisible {
-                TerminalPanelView(terminal: terminal, claudeConnected: windowDelegate.claude.connectedClients > 0)
+                TerminalPanelView(terminal: terminal)
                     .frame(minHeight: TidepadMetrics.terminalMinimumHeight, idealHeight: TidepadMetrics.terminalIdealHeight)
             }
         }

@@ -6,7 +6,7 @@ import AppKit
 
     static func arrange() {
         guard let main = NSApp.mainMenu else { return }
-        let names = ["Tidepad", "File", "Edit", "Search", "View", "Encoding", "Language", "Settings", "Tools", "Window", "Help"]
+        let names = ["TidePad", "File", "Edit", "Search", "View", "Encoding", "Language", "Settings", "Tools", "Window", "Help"]
         let sorted = names.compactMap { name in main.items.first { $0.title == name || $0.submenu?.title == name } }
         guard sorted.count == names.count else { return }
         for (index, item) in sorted.enumerated() where main.index(of: item) != index {

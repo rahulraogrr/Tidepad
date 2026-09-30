@@ -37,7 +37,7 @@ struct AIPrompt: Equatable, Sendable {
     /// Whether the text was cut to fit.
     let clipped: Bool
 
-    private static let role = "You are a helpful assistant inside Tidepad, a text and code editor for developers. Be accurate and concise. Don't use Markdown headings."
+    private static let role = "You are a helpful assistant inside TidePad, a text and code editor for developers. Be accurate and concise. Don't use Markdown headings."
 
     init(_ request: AIRequest, text: String, language: String? = nil) {
         let (input, clipped) = Self.clip(text)

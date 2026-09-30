@@ -3,6 +3,10 @@
 Tidepad is a native macOS text editor in the spirit of Notepad++. These rules apply to all code in this
 repository, whoever (or whatever) writes it.
 
+The product's name is written **TidePad** in everything users see (menus, windows, About, Help, alerts,
+Info.plist's name and display name). Code, the Xcode project and target, the executable, the bundle
+identifier, the Help book folder and saved-data names keep `Tidepad`, so settings and sessions carry over.
+
 ## Rule no. 1: 100% native Apple
 
 - Use only Apple frameworks: Swift standard library, Foundation, AppKit, SwiftUI, Observation, Combine,
@@ -86,6 +90,16 @@ repository, whoever (or whatever) writes it.
   normal editor, but Tidepad's Rewrite uses Foundation Models so it also works in the large-file view
   (a custom view Writing Tools can't reach) and shows the result before replacing. Input is cut to
   8,000 characters for the model's ~4,096-token context.
+- Claude Code integration removed (2026-09-30): the IDE connection (lock file, WebSocket MCP server,
+  selection sharing, diff review) was taken out at the owner's request. Tidepad's AI is the on-device
+  model only. The terminal stays a general terminal.
+- About (2026-09-30): a small SwiftUI `Window` (`AboutView`, titled "About Tidepad", not resizable or
+  minimisable) in the style of JetBrains' About: icon beside a large name and version, the build date
+  (the app's own modification date), the description, macOS version and chip, whether on-device AI is
+  available, the home page and copyright, with Close and Copy and Close (copies the details for bug
+  reports). Neither Apple ready-made option fits: the standard About panel always shows such text in a
+  bordered scroll box, and NSAlert's wide layout (macOS 26+) can't be arranged like this. Version and
+  copyright come from Info.plist.
 - Terminal panel (2026-09-28): the shell runs on a pseudo-terminal created with `forkpty` from macOS's
   C library, not Foundation's `Process`, because `Process` can't give the shell a controlling
   terminal, which job control, Ctrl-C and full-screen programs need; Terminal.app works the same way.

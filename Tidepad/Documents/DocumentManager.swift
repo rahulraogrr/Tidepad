@@ -55,7 +55,7 @@ import Observation
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        panel.message = "Choose text files to open in Tidepad."
+        panel.message = "Choose text files to open in TidePad."
         #if DEBUG
         MenuValidation.presenting(panel)
         #endif
@@ -244,7 +244,7 @@ import Observation
     }
 
     /// Watches the open files' folders with FSEvents, so changes made while Tidepad is the active app
-    /// (by Claude Code or git in the terminal panel, say) are noticed straight away, not only when
+    /// (by git or a build in the terminal panel, say) are noticed straight away, not only when
     /// Tidepad is next activated. Most tools don't use file coordination, so the presenters miss them.
     private func updateFolderWatcher() {
         let folders = Set(documents.compactMap { $0.fileURL?.deletingLastPathComponent().resolvingSymlinksInPath().path })
@@ -304,9 +304,9 @@ import Observation
             selectedID = id
             let alert = NSAlert()
             alert.messageText = "“\(document.displayName)” was changed by another application."
-            alert.informativeText = "Reload it from disk? Your unsaved changes in Tidepad will be lost."
+            alert.informativeText = "Reload it from disk? Your unsaved changes in TidePad will be lost."
             alert.addButton(withTitle: "Reload")
-            alert.addButton(withTitle: "Keep Tidepad’s Version")
+            alert.addButton(withTitle: "Keep TidePad’s Version")
             if alert.runModal() == .alertFirstButtonReturn {
                 do { try reloadFromDisk(document) } catch { show(error) }
             } else {
@@ -320,7 +320,7 @@ import Observation
         selectedID = document.id
         let alert = NSAlert()
         alert.messageText = "“\(document.displayName)” was deleted or moved to the Trash by another application."
-        alert.informativeText = "Keep it open in Tidepad? You can save it again to recreate the file."
+        alert.informativeText = "Keep it open in TidePad? You can save it again to recreate the file."
         alert.addButton(withTitle: "Keep Open")
         alert.addButton(withTitle: "Close")
         if alert.runModal() == .alertFirstButtonReturn {

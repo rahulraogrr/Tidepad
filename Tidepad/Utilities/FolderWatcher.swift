@@ -2,7 +2,7 @@ import CoreServices
 import Foundation
 
 /// Tells Tidepad which folders changed on disk, using FSEvents (the macOS service Finder uses), so the
-/// sidebar and open files follow changes made by Claude Code, git or a build without a manual refresh. Events arrive on
+/// sidebar and open files follow changes made by git, a build or another app without a manual refresh. Events arrive on
 /// the main queue, grouped over `latency` seconds, as folder paths.
 final class FolderWatcher {
     private var stream: FSEventStreamRef?

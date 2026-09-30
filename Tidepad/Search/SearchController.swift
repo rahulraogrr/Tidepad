@@ -71,7 +71,7 @@ actor CompiledSearchCache {
         if panel == nil {
             let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 640, height: panelHeight),
                                 styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false)
-            panel.title = "Tidepad Search"; panel.isReleasedWhenClosed = false
+            panel.title = "TidePad Search"; panel.isReleasedWhenClosed = false
             // Stay above Tidepad's window, but hide while another app is active.
             panel.hidesOnDeactivate = true; panel.level = .floating
             panel.contentView = NSHostingView(rootView: SearchPanelView(controller: self))

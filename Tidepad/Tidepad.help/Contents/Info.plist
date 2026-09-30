@@ -9,7 +9,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Tidepad Help</string>
+	<string>TidePad Help</string>
 	<key>CFBundlePackageType</key>
 	<string>BNDL</string>
 	<key>CFBundleShortVersionString</key>
@@ -25,7 +25,7 @@
 	<key>HPDBookIndexPath</key>
 	<string>Tidepad.helpindex</string>
 	<key>HPDBookTitle</key>
-	<string>Tidepad Help</string>
+	<string>TidePad Help</string>
 	<key>HPDBookType</key>
 	<string>3</string>
 </dict>

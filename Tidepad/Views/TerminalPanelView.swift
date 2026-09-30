@@ -5,8 +5,6 @@ import AppKit
 /// terminal below it.
 struct TerminalPanelView: View {
     let terminal: TerminalPanel
-    /// Claude Code is connected to Tidepad.
-    var claudeConnected = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,16 +15,6 @@ struct TerminalPanelView: View {
                     HStack(spacing: 2) {
                         ForEach(terminal.sessions) { session in tab(session) }
                     }
-                }
-                if claudeConnected {
-                    HStack(spacing: 4) {
-                        Circle().fill(Color.green).frame(width: 6, height: 6)
-                        Text("Claude Code connected").font(.system(size: TidepadMetrics.tabFontSize)).lineLimit(1)
-                    }
-                    .foregroundStyle(Color(nsColor: TidepadTheme.inactiveTabText))
-                    .padding(.horizontal, TidepadMetrics.tabHorizontalPadding)
-                    .help("Claude Code sees the open folder, tabs and selection, and shows proposed changes for review")
-                    .fixedSize()
                 }
                 button("New Terminal", icon: "plus", action: terminal.newTerminal)
                 button("Restart Shell", icon: "arrow.clockwise", action: terminal.restart)

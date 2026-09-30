@@ -5,7 +5,7 @@ import AppKit
 /// Apple's text-input protocol, so dead keys and input methods work as in any Mac text view.
 ///
 /// The mouse selects text (drag, double-click for a word, triple-click for a line; ⌘C copies), unless
-/// the program asked for mouse events, as Claude Code, vim and less can: then clicks, drags and the
+/// the program asked for mouse events, as vim and less can: then clicks, drags and the
 /// scroll wheel go to the program, and holding ⌥ selects text instead, as in iTerm.
 ///
 /// VoiceOver sees a text area, as in Terminal.app: it can read the visible lines, move through them
@@ -317,7 +317,7 @@ import AppKit
             if option { return [0x1B, 0x7F] } // ⌥⌫: delete the previous word
             return [0x7F]
         case .carriageReturn, .enter, .newline:
-            return option || shift ? [0x1B, 0x0D] : [0x0D] // ⌥↩ / ⇧↩: a new line in Claude Code's prompt.
+            return option || shift ? [0x1B, 0x0D] : [0x0D] // ⌥↩ / ⇧↩: a new line in multi-line prompts.
         case .tab: return [0x09]
         case .backTab: return bytes("\(escape)[Z")
         case .f1: return bytes("\(escape)OP")
@@ -337,7 +337,7 @@ import AppKit
     }
 
     /// Edit > Paste. Line breaks are sent as Return; bracketed paste marks the text as pasted so
-    /// shells and Claude Code don't run it line by line.
+    /// shells and other programs don't run it line by line.
     @objc func paste(_ sender: Any?) {
         guard var text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
         text = text.replacingOccurrences(of: "\r\n", with: "\r").replacingOccurrences(of: "\n", with: "\r")

@@ -28,7 +28,7 @@ final class LargeTextFile: @unchecked Sendable {
         var errorDescription: String? {
             switch self {
             case .unsupportedEncoding(let name):
-                return "\(name) files larger than \(LargeTextFile.threshold / 1_048_576) MB can't be opened yet. Tidepad opens large files in UTF-8."
+                return "\(name) files larger than \(LargeTextFile.threshold / 1_048_576) MB can't be opened yet. TidePad opens large files in UTF-8."
             }
         }
     }

@@ -12,16 +12,17 @@ struct TidepadCommands: Commands {
         LanguageCommands(context: context)
         SettingsCommands(context: context)
         ToolsCommands(context: context)
+        CommandGroup(replacing: .appInfo) { AboutMenuItem() }
         CommandGroup(replacing: .appVisibility) {
             // Cmd+H belongs to Replace; keep Hide available with an unambiguous alternate shortcut.
-            Button("Hide Tidepad") { NSApp.hide(nil) }.keyboardShortcut("h", modifiers: [.command, .control])
+            Button("Hide TidePad") { NSApp.hide(nil) }.keyboardShortcut("h", modifiers: [.command, .control])
             Button("Hide Others") { NSApp.hideOtherApplications(nil) }.keyboardShortcut("h", modifiers: [.command, .option])
             Button("Show All") { NSApp.unhideAllApplications(nil) }
         }
         CommandGroup(replacing: .help) {
             // Tidepad Help is an Apple Help Book (Tidepad/Tidepad.help), shown in macOS's Help Viewer;
             // the Help menu's search field searches it too.
-            Button("Tidepad Help") { NSApp.showHelp(nil) }.keyboardShortcut("?", modifiers: .command)
+            Button("TidePad Help") { NSApp.showHelp(nil) }.keyboardShortcut("?", modifiers: .command)
             Button("Keyboard Shortcuts") { TidepadHelp.open("shortcuts") }
         }
     }

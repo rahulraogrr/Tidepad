@@ -36,7 +36,7 @@ struct TerminalCell: Equatable, Sendable {
 /// The terminal emulator: turns the bytes a program writes (UTF-8 text and xterm control sequences)
 /// into a grid of cells, as Terminal.app does. Foundation only, so it's tested without a window.
 ///
-/// Supports what shells, git, less, vim and Claude Code use: cursor movement, erasing, inserting and
+/// Supports what shells, git, less, vim and other full-screen programs use: cursor movement, erasing, inserting and
 /// deleting, scroll regions, colours (16, 256 and 24-bit), text styles, the alternate screen, bracketed
 /// paste, application cursor keys, window titles, status reports and mouse reporting.
 final class TerminalScreen {

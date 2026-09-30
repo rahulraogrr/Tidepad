@@ -72,7 +72,7 @@ import Observation
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "Choose a folder to open in Tidepad."
+        panel.message = "Choose a folder to open in TidePad."
         panel.prompt = "Open"
         guard panel.runModal() == .OK, let folder = panel.url else { return }
         open(folder)

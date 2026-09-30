@@ -200,7 +200,7 @@ import AppKit
             DispatchQueue.main.async {
                 let alert = NSAlert()
                 alert.messageText = "Unsaved changes to \(lostEdits.joined(separator: ", ")) couldn't be restored."
-                alert.informativeText = "The file changed on disk after Tidepad quit, so the changes no longer fit it. It's open as it is now."
+                alert.informativeText = "The file changed on disk after TidePad quit, so the changes no longer fit it. It's open as it is now."
                 alert.runModal()
             }
         }

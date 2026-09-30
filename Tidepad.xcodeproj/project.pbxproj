@@ -57,6 +57,7 @@
 		E1DA15FBA665D6C6D6976199 /* Tidepad/Commands/EditCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBE62F7E3396E91ACEEEFAC4 /* Tidepad/Commands/EditCommands.swift */; };
 		E4D4D6702A8811306D27E3D2 /* Tidepad/Editor/BracketMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB3AA0AC11CE7B43BEEE1550 /* Tidepad/Editor/BracketMatcher.swift */; };
 		EDCFF474E24E220AE7E24D6A /* Tidepad/Views/StatusBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E1C9906A51AD9DB408914C4 /* Tidepad/Views/StatusBarView.swift */; };
+		7D1C0A55E7B14F2A9C3E00A1 /* Tidepad/Views/AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1C0A55E7B14F2A9C3E00A2 /* Tidepad/Views/AboutView.swift */; };
 		F05E7104C0A7896B47A8BB9F /* Tidepad/Commands/EncodingCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBF151C073CD688A496F2B1F /* Tidepad/Commands/EncodingCommands.swift */; };
 		4018FBAF34737C6D041807BD /* Tidepad/Project/FolderListing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2529AB182E08B67D4D170E68 /* Tidepad/Project/FolderListing.swift */; };
 		E46A902D865B9CA401D4E9CD /* Tidepad/Project/ProjectFolder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 964A15A6579529FA71B6C059 /* Tidepad/Project/ProjectFolder.swift */; };
@@ -68,11 +69,6 @@
 		A3E8D1C1F8EDF41D52AD21AC /* Tidepad/Terminal/TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC6C97FA224AC31E52C73671 /* Tidepad/Terminal/TerminalView.swift */; };
 		222C5557F6F0599E3C60E78E /* Tidepad/Terminal/TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D427CC70BB25740408FB86C5 /* Tidepad/Terminal/TerminalPanel.swift */; };
 		72AEEEA993896C67538F4F0B /* Tidepad/Views/TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7148194C206C6B23F1C48B3E /* Tidepad/Views/TerminalPanelView.swift */; };
-		4F145E5A108841260159880A /* Tidepad/ClaudeCode/IDEProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F002C93B43B96C6070872DC /* Tidepad/ClaudeCode/IDEProtocol.swift */; };
-		2EBF3761F24C40C58FC32C8D /* Tidepad/ClaudeCode/LineDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE672C1375E729F1BBF5A5E6 /* Tidepad/ClaudeCode/LineDiff.swift */; };
-		693F659DC26BF0C575D498E9 /* Tidepad/ClaudeCode/IDEServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4FBB8EDF11028B39DD0C36D /* Tidepad/ClaudeCode/IDEServer.swift */; };
-		F234D5355E269B1A5A567EF1 /* Tidepad/ClaudeCode/ClaudeCodeConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2416E85626247497D1FC96B /* Tidepad/ClaudeCode/ClaudeCodeConnection.swift */; };
-		A655EFE5DE9D2FC0C6CD9F44 /* Tidepad/ClaudeCode/DiffReviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFEF662BDECE79049F9B6551 /* Tidepad/ClaudeCode/DiffReviewWindow.swift */; };
 		45066EE01B57451EB780685F /* Tidepad/Session/SessionKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7649516DEFBB8965053BE13 /* Tidepad/Session/SessionKeeper.swift */; };
 		7D1C0A55E7B14F2A9C3E0001 /* Tidepad/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7D1C0A55E7B14F2A9C3E0002 /* Tidepad/Assets.xcassets */; };
 		7D1C0A55E7B14F2A9C3E0011 /* Tidepad/Terminal/TerminalAccessibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1C0A55E7B14F2A9C3E0012 /* Tidepad/Terminal/TerminalAccessibility.swift */; };
@@ -98,6 +94,7 @@
 		0BE48949002CE22A751EF0DF /* Tidepad/Editor/SyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Editor/SyntaxHighlighter.swift; sourceTree = SOURCE_ROOT; };
 		0DCC2D932E45CE90AC1C71F3 /* Tidepad/Search/SearchResultBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Search/SearchResultBuilder.swift; sourceTree = SOURCE_ROOT; };
 		0E1C9906A51AD9DB408914C4 /* Tidepad/Views/StatusBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Views/StatusBarView.swift; sourceTree = SOURCE_ROOT; };
+		7D1C0A55E7B14F2A9C3E00A2 /* Tidepad/Views/AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Views/AboutView.swift; sourceTree = SOURCE_ROOT; };
 		0F73584ED4D33C1E45EC0029 /* Tidepad/App/TidepadApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/App/TidepadApp.swift; sourceTree = SOURCE_ROOT; };
 		2CB449716E85BAF142013298 /* Tidepad/Editor/AppKitTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Editor/AppKitTextView.swift; sourceTree = SOURCE_ROOT; };
 		2D7A5B262AFD48E8B2CBD96F /* Tests/AppPerformanceValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/AppPerformanceValidation.swift; sourceTree = SOURCE_ROOT; };
@@ -153,11 +150,6 @@
 		CC6C97FA224AC31E52C73671 /* Tidepad/Terminal/TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Terminal/TerminalView.swift; sourceTree = SOURCE_ROOT; };
 		D427CC70BB25740408FB86C5 /* Tidepad/Terminal/TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Terminal/TerminalPanel.swift; sourceTree = SOURCE_ROOT; };
 		7148194C206C6B23F1C48B3E /* Tidepad/Views/TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Views/TerminalPanelView.swift; sourceTree = SOURCE_ROOT; };
-		6F002C93B43B96C6070872DC /* Tidepad/ClaudeCode/IDEProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/ClaudeCode/IDEProtocol.swift; sourceTree = SOURCE_ROOT; };
-		AE672C1375E729F1BBF5A5E6 /* Tidepad/ClaudeCode/LineDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/ClaudeCode/LineDiff.swift; sourceTree = SOURCE_ROOT; };
-		C4FBB8EDF11028B39DD0C36D /* Tidepad/ClaudeCode/IDEServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/ClaudeCode/IDEServer.swift; sourceTree = SOURCE_ROOT; };
-		D2416E85626247497D1FC96B /* Tidepad/ClaudeCode/ClaudeCodeConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/ClaudeCode/ClaudeCodeConnection.swift; sourceTree = SOURCE_ROOT; };
-		BFEF662BDECE79049F9B6551 /* Tidepad/ClaudeCode/DiffReviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/ClaudeCode/DiffReviewWindow.swift; sourceTree = SOURCE_ROOT; };
 		E7649516DEFBB8965053BE13 /* Tidepad/Session/SessionKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Session/SessionKeeper.swift; sourceTree = SOURCE_ROOT; };
 		7D1C0A55E7B14F2A9C3E0002 /* Tidepad/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Tidepad/Assets.xcassets; sourceTree = SOURCE_ROOT; };
 		7D1C0A55E7B14F2A9C3E0012 /* Tidepad/Terminal/TerminalAccessibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Terminal/TerminalAccessibility.swift; sourceTree = SOURCE_ROOT; };
@@ -204,11 +196,6 @@
 				7D1C0A55E7B14F2A9C3E0094 /* Tidepad/AI/OnDeviceModel.swift */,
 				7D1C0A55E7B14F2A9C3E0096 /* Tidepad/AI/AIController.swift */,
 				7D1C0A55E7B14F2A9C3E0082 /* Tidepad/Syntax/LargeSyntaxEngine.swift */,
-				6F002C93B43B96C6070872DC /* Tidepad/ClaudeCode/IDEProtocol.swift */,
-				AE672C1375E729F1BBF5A5E6 /* Tidepad/ClaudeCode/LineDiff.swift */,
-				C4FBB8EDF11028B39DD0C36D /* Tidepad/ClaudeCode/IDEServer.swift */,
-				D2416E85626247497D1FC96B /* Tidepad/ClaudeCode/ClaudeCodeConnection.swift */,
-				BFEF662BDECE79049F9B6551 /* Tidepad/ClaudeCode/DiffReviewWindow.swift */,
 				70DA2CFC9A37B0CAB1660AF6 /* Tidepad/Terminal/TerminalScreen.swift */,
 				60CA6A6B1E565A656EE304DF /* Tidepad/Terminal/PseudoTerminal.swift */,
 				CC6C97FA224AC31E52C73671 /* Tidepad/Terminal/TerminalView.swift */,
@@ -269,6 +256,7 @@
 				BF09CFC8372631DF61738381 /* Tidepad/Views/EditorToolbar.swift */,
 				2E4B2A5D606301191470AD4E /* Tidepad/Views/EditorView.swift */,
 				0E1C9906A51AD9DB408914C4 /* Tidepad/Views/StatusBarView.swift */,
+				7D1C0A55E7B14F2A9C3E00A2 /* Tidepad/Views/AboutView.swift */,
 				E2FADB3F1975D75374D667CA /* Tidepad/Views/WorkspaceView.swift */,
 				FBDC4F23F93125BBEEAE800C /* Products */,
 			);
@@ -359,11 +347,6 @@
 				7D1C0A55E7B14F2A9C3E0093 /* Tidepad/AI/OnDeviceModel.swift in Sources */,
 				7D1C0A55E7B14F2A9C3E0095 /* Tidepad/AI/AIController.swift in Sources */,
 				7D1C0A55E7B14F2A9C3E0081 /* Tidepad/Syntax/LargeSyntaxEngine.swift in Sources */,
-				4F145E5A108841260159880A /* Tidepad/ClaudeCode/IDEProtocol.swift in Sources */,
-				2EBF3761F24C40C58FC32C8D /* Tidepad/ClaudeCode/LineDiff.swift in Sources */,
-				693F659DC26BF0C575D498E9 /* Tidepad/ClaudeCode/IDEServer.swift in Sources */,
-				F234D5355E269B1A5A567EF1 /* Tidepad/ClaudeCode/ClaudeCodeConnection.swift in Sources */,
-				A655EFE5DE9D2FC0C6CD9F44 /* Tidepad/ClaudeCode/DiffReviewWindow.swift in Sources */,
 				4358A65545C8928D7450CB07 /* Tidepad/Terminal/TerminalScreen.swift in Sources */,
 				EF87B5CB3F7AD30B32FF66F3 /* Tidepad/Terminal/PseudoTerminal.swift in Sources */,
 				A3E8D1C1F8EDF41D52AD21AC /* Tidepad/Terminal/TerminalView.swift in Sources */,
@@ -424,6 +407,7 @@
 				35A25842C67F53B734E119CA /* Tidepad/Views/EditorToolbar.swift in Sources */,
 				3B99F1E5A8C545810ADFB034 /* Tidepad/Views/EditorView.swift in Sources */,
 				EDCFF474E24E220AE7E24D6A /* Tidepad/Views/StatusBarView.swift in Sources */,
+				7D1C0A55E7B14F2A9C3E00A1 /* Tidepad/Views/AboutView.swift in Sources */,
 				DA8C6D81D32BACCAB3922EC4 /* Tidepad/Views/WorkspaceView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

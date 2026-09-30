@@ -100,7 +100,7 @@ import Observation
     private(set) var selectedID: UUID?
     /// Where a new shell starts.
     @ObservationIgnored var workingDirectory: @MainActor () -> URL = { FileManager.default.homeDirectoryForCurrentUser }
-    /// Extra environment variables for new shells (the Claude Code connection's port).
+    /// Extra environment variables for new shells.
     @ObservationIgnored var environment: @MainActor () -> [String: String] = { [:] }
     @ObservationIgnored private var nextNumber = 1
 

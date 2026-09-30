@@ -13,8 +13,6 @@ import Combine
     /// report a bold keyword's font; the gutter, typing and highlighter use this instead.
     private(set) var baseFont: NSFont
     private var appliedOptions: EditorDisplayOptions?
-    /// Called when the selection changes (the Claude Code connection passes it on).
-    var selectionChanged: ((EditorSession) -> Void)?
 
     init(document: EditorDocument, fontConfiguration: EditorFontConfiguration = .standard,
          syntaxPolicy: SyntaxPolicy = SyntaxPolicy()) {
@@ -228,7 +226,6 @@ import Combine
         // New typing uses the regular font, even right after a bold keyword.
         if textView.typingAttributes[.font] as? NSFont != baseFont { textView.typingAttributes[.font] = baseFont }
         updateCursor()
-        selectionChanged?(self)
     }
 
     private func updateCursor() {
@@ -251,16 +248,14 @@ import Combine
     private var sessions: [UUID: EditorSession] = [:]
     /// Opens files dropped on an editor.
     var openFiles: (([URL]) -> Void)?
-    /// Called when the selection changes in any editor.
-    var selectionChanged: ((EditorSession) -> Void)?
     /// Called when an editor is created for a tab (the session keeper puts its caret back).
     var sessionCreated: ((EditorSession) -> Void)?
     /// The tab's editor if it has been created, without creating one.
     func existingSession(for document: EditorDocument) -> EditorSession? { sessions[document.id] }
     private var largeViews: [UUID: LargeTextView] = [:]
-    /// The large-file view for a large file's tab, created on first use and kept while the tab is open.
     /// Items added at the top of the editors' right-click menus (the On-Device AI submenu).
     var contextMenuItems: (() -> [NSMenuItem])?
+    /// The large-file view for a large file's tab, created on first use and kept while the tab is open.
     func largeView(for document: EditorDocument, buffer: LargeTextBuffer, options: EditorDisplayOptions) -> LargeTextView {
         if let view = largeViews[document.id] { return view }
         let view = LargeTextView(document: document, buffer: buffer, options: options)
@@ -275,7 +270,6 @@ import Combine
         session.textView.registerForDraggedTypes([.fileURL])
         session.textView.openFiles = { [weak self] urls in self?.openFiles?(urls) }
         session.textView.contextMenuItems = { [weak self] in self?.contextMenuItems?() ?? [] }
-        session.selectionChanged = { [weak self] session in self?.selectionChanged?(session) }
         sessions[document.id] = session
         sessionCreated?(session)
         return session
