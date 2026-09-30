@@ -33,6 +33,19 @@ repository, whoever (or whatever) writes it.
   accessibility and more until rebuilt. Both modes share one engine (storage, `TextCommands`, search,
   lexer) so features aren't written twice; the large-file view uses Apple APIs for what it takes over
   (Core Text, `NSTextInputClient`, `NSUndoManager`, `NSPasteboard`, `NSAccessibility`).
+- Large-file spike (2026-09-30, `Tests/run-large-file-spike.sh`, 500 MB, 5.74 M lines, M1 Air):
+  - TextKit 2 with our own `NSTextContentManager` over the piece table is ruled out: to relocate the
+    viewport it enumerated every element from the start (5.74 M to the middle in 52 s and 7.2 GB,
+    11.5 M to the end in 120 s and 21.9 GB), and its estimated height was unusable (1,892 pt).
+  - Core Text: a whole screen (find, decode, build, draw 60 lines) at any line takes 1.25 ms median,
+    1.52 ms worst, 11 MB. So the large-file view is our own Core Text view.
+  - Line index on bytes, not UTF-16: memchr finds 5.74 M lines in 53 ms (UTF-16 through the piece
+    table: 650 ms). Sparse, every 64th line start: 700 KB instead of 43 MB; any line in microseconds.
+  - A mapped file that another app truncates crashes the reader with SIGBUS (proved with `mmap`).
+    Mapping an APFS clone (`clonefile`, 0.14 ms for 500 MB, no extra space) survives. Map clones
+    with `mmap` directly; Foundation's `.alwaysMapped` doesn't document when it copies instead.
+    Volumes without cloning fall back to chunked reads.
+  - An 850-million-point-tall scroll view stays sharp and evenly spaced, so no virtual scrolling.
 - Terminal panel (2026-09-28): the shell runs on a pseudo-terminal created with `forkpty` from macOS's
   C library, not Foundation's `Process`, because `Process` can't give the shell a controlling
   terminal, which job control, Ctrl-C and full-screen programs need; Terminal.app works the same way.
