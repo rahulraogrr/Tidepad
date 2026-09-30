@@ -71,6 +71,9 @@ final class WebSocketInbox: @unchecked Sendable {
         let match = buffer.find(Array("request 9999 café".utf8), from: 0)!
         view.select(match)
         precondition(document.cursorLine == 10_000 && view.selectedBytes == match, "Reveal a match")
+        view.setLanguage(.sql) // Colours: drawn with the lexer's tokens, then back to plain text.
+        window.displayIfNeeded()
+        view.setLanguage(.plain)
 
         // Editing: typing (one undo step), Return, delete, paste, undo back to saved, redo, save.
         let lines = buffer.lineCount, size = buffer.count

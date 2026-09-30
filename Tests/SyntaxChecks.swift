@@ -35,6 +35,86 @@ final class SyntaxDocument {
 @main struct SyntaxChecks {
     static func text(_ document: SyntaxDocument, _ token: SyntaxToken) -> String { document.text.substring(with: token.range) }
 
+    /// The large-file view's engine gives the normal editor's tokens: exactly once the background pass
+    /// has worked out the checkpoints, and the same when guessed, since no comment here spans more
+    /// than the warm-up.
+    /// Lines as the large-file view reads them: bytes with a line break.
+    static func reader(_ lines: [String]) -> LargeSyntaxEngine.Lines {
+        let bytes = lines.map { Array(($0 + "\n").utf8) }
+        return { first, count, body in
+            for line in first..<min(bytes.count, first + count) where !bytes[line].withUnsafeBufferPointer(body) { return }
+        }
+    }
+
+    /// The lexer gives the same tokens and states on UTF-8 bytes as on UTF-16, and the same state
+    /// when it only follows the state (which skips lines where nothing opens).
+    static func encodingChecks() {
+        let pieces = ["/*", "*/", "//", "--", "#", "'", "\"", "\"\"\"", "`", "```", "<", ">", "<!--", "-->", "\\", " ", "\t", "select", "SELECT",
+                      "Null", "true", "func", "é", "తెలుగు", "😀", "42", "3.14", "a_b", "key:", ": ", "- ", "{", "}", "x", "div", "class=", "\r", "yes"]
+        for language in SyntaxLanguage.allCases {
+            let lexer = LineLexer(language: language)
+            for _ in 0..<400 {
+                var utf16 = LexerState(), utf8 = LexerState(), follow = LexerState()
+                for _ in 0..<10 {
+                    var line = ""
+                    for _ in 0..<Int.random(in: 0...12) { line += pieces.randomElement()! }
+                    line += "\n"
+                    let units = Array(line.utf16), bytes = Array(line.utf8)
+                    let a = lexer.scan(units, state: &utf16)
+                    let b = bytes.withUnsafeBufferPointer { lexer.scan(utf8: $0, state: &utf8) }
+                    _ = bytes.withUnsafeBufferPointer { lexer.scan(utf8: $0, state: &follow, collect: false) }
+                    precondition(a.count == b.count && zip(a, b).allSatisfy { x, y in x.kind == y.kind
+                        && String(decoding: units[x.range.location..<NSMaxRange(x.range)], as: UTF16.self) == String(decoding: bytes[y.range.location..<NSMaxRange(y.range)], as: UTF8.self) },
+                                 "UTF-8 tokens in \(language): \(line.debugDescription)")
+                    precondition(utf16 == utf8 && utf8 == follow, "States in \(language) after \(line.debugDescription)")
+                }
+            }
+        }
+    }
+
+    static func largeEngineChecks() {
+        var lines: [String] = []
+        for k in 0..<2_000 {
+            switch k % 97 {
+            case 10: lines.append("/* comment opened on line \(k)")
+            case 11...14: lines.append("still comment \(k) select from")
+            case 15: lines.append("closed */ select \(k) from t where x = 'a'")
+            default: lines.append("select id, name from t\(k) where n = \(k) and s = 'x' -- note")
+            }
+        }
+        let document = SyntaxDocument(lines.joined(separator: "\n") + "\n", .sql)
+        let units = lines.map { Array($0.utf16) + [10] }
+        let lineUnits = reader(lines)
+        var engine = LargeSyntaxEngine(language: .sql)
+        let states = LargeSyntaxEngine.advance(language: .sql, from: 0, state: LexerState(), count: 1_000, lineCount: lines.count, lines: lineUnits)
+        precondition(states.count == 2_000 / LargeSyntaxEngine.stride && states[0] == document.state(line: 256), "Background states")
+        precondition(engine.append(states, after: 0) && !engine.append(states, after: 0), "Checkpoints append only in order")
+        for line in [0, 5, 10, 12, 15, 16, 255, 256, 300, 687, 700, 1_000, 1_500, 1_791, 1_999] + (0..<60).map({ _ in Int.random(in: 0..<2_000) }) {
+            precondition(engine.isExact(line) && engine.tokens(line: line, units: units[line], lines: lineUnits) == document.tokens(line: line), "Large line \(line)")
+        }
+        var guessed = LargeSyntaxEngine(language: .sql)
+        for line in stride(from: 0, to: 2_000, by: 37) {
+            precondition(guessed.isExact(line) == (line < LargeSyntaxEngine.stride), "Exact \(line)")
+            precondition(guessed.tokens(line: line, units: units[line], lines: lineUnits) == document.tokens(line: line), "Guessed line \(line)")
+        }
+        // A comment opened far above: guessed wrong until the background pass reaches it.
+        var long = ["/* opened"] + Array(repeating: "inside select", count: 500) + ["*/ select 1"]
+        long += Array(repeating: "select 2", count: 100)
+        let longUnits = long.map { Array($0.utf16) + [10] }
+        let longLine = reader(long)
+        var far = LargeSyntaxEngine(language: .sql)
+        precondition(far.tokens(line: 400, units: longUnits[400], lines: longLine).first?.kind != .comment && !far.isExact(400), "Guessed outside the comment")
+        precondition(far.append(LargeSyntaxEngine.advance(language: .sql, from: 0, state: LexerState(), count: 10, lineCount: long.count, lines: longLine), after: 0))
+        precondition(far.tokens(line: 400, units: longUnits[400], lines: longLine).map(\.kind) == [.comment] && far.isExact(400), "Exact inside the comment")
+        // An edit drops the checkpoints after it.
+        engine.invalidate(fromLine: 600)
+        precondition(engine.checkpoints.count == 600 / LargeSyntaxEngine.stride + 1, "Invalidated")
+        // JSON: no state across lines, so every line is exact.
+        var json = LargeSyntaxEngine(language: .json)
+        let property = Array("  \"key\": [1, true],".utf16) + [10]
+        precondition(json.isExact(1_000_000) && json.tokens(line: 1_000_000, units: property, lines: { _, _, _ in }).first?.kind == .property, "JSON")
+    }
+
     static func main() {
         let fixtures: [(SyntaxLanguage, String, [SyntaxKind])] = [
             (.swift, "let value = \"hi\" // note\nvar ready = true\nlet count = 42", [.keyword, .string, .comment, .literal, .number, .punctuation]),
@@ -82,7 +162,7 @@ final class SyntaxDocument {
         for (language, source) in prose {
             let document = SyntaxDocument(source, language)
             precondition(!document.tokens(line: 0).contains { $0.kind == .string && $0.range.length > 3 }, "Apostrophe opened a string in \(language)")
-            precondition(document.state(line: 1).quote.isEmpty, "Quote state carried over in \(language)")
+            precondition(document.state(line: 1).quote == 0, "Quote state carried over in \(language)")
         }
         // Markup: the tag name is a tag, later names in the tag are attributes.
         let markup = SyntaxDocument("<div class=\"x\" id='y'>text</div>", .html)
@@ -161,6 +241,8 @@ final class SyntaxDocument {
         precondition(BracketMatcher.match(in: "([)]", caret: 0).isEmpty)
         precondition(BracketMatcher.match(in: "(abc)", caret: 0, limit: 3).isEmpty)
         precondition(BracketMatcher.match(in: "", caret: 0).isEmpty)
-        print("Syntax checks passed: all 11 languages, JSON property names, lazy lexing and checkpoints, edits and random edits, long lines, UTF-16 offsets, brackets.")
+        encodingChecks()
+        largeEngineChecks()
+        print("Syntax checks passed: all 11 languages, JSON property names, lazy lexing and checkpoints, edits and random edits, long lines, UTF-16 offsets, brackets; the same tokens and states from UTF-8 and UTF-16; the large-file view's colouring (exact from the background pass, guessed before it, after edits).")
     }
 }

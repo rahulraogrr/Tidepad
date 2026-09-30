@@ -27,7 +27,8 @@
 <h2>Large files</h2>
 <p>Files of 64 MB or more, such as big logs, data exports or database dumps, open in Tidepad's large-file view. They open almost at once whatever their size, even 500 MB, because Tidepad reads only the part on screen and keeps your edits as small changes on top of the file. You can scroll, go to any line (<kbd>⌘</kbd><kbd>L</kbd>), type, paste, delete, undo and redo, find and replace (<kbd>⌘</kbd><kbd>F</kbd>, then <kbd>⌘</kbd><kbd>G</kbd>), including regular expressions and whole words, count matches, and save. The status bar shows "large file".</p>
 <p>Replace All changes up to 100,000 matches at a time, and you can undo it in one step. In a large file a regular-expression match can be up to 64 KB long.</p>
-<p>In this version, large files have no syntax colours or word wrap, Find All isn't available, and neither are the Encoding menu and Tools. Large files must be UTF-8.</p>
+<p>Large files are coloured like other files, from the language in the Language menu. In a very big file, colours far down may take a few seconds to settle when a comment or string spans many lines, while Tidepad works through the file in the background. Lines longer than 16 KB aren't coloured.</p>
+<p>In this version, large files have no word wrap, Find All isn't available, and neither are the Encoding menu and Tools. Large files must be UTF-8.</p>
 <p>Unsaved changes to a large file are kept when you quit, like any tab's: Tidepad remembers just your changes, not a copy of the file. If another app changes the file before you open Tidepad again, your changes no longer fit it, and Tidepad tells you.</p>
 <h2>Encodings</h2>
 <p>Tidepad detects each file's encoding when it opens it and shows it in the status bar. The Encoding menu ticks it too.</p>

@@ -340,6 +340,41 @@ final class LargeTextBuffer: @unchecked Sendable {
 
     func lineRange(_ line: Int) -> Range<Int> { lineRanges(from: min(max(0, line), lineCount - 1), count: 1)[0] }
 
+    /// Calls `body` with each of `wanted` lines from `first` on, as bytes including the line break,
+    /// in order; stops when it returns false. A line inside one piece is passed where it lies, with
+    /// no copy; only a line across pieces is copied.
+    func forEachLine(from first: Int, count wanted: Int, _ body: (UnsafeBufferPointer<UInt8>) -> Bool) {
+        guard first >= 0, first < lineCount, wanted > 0 else { return }
+        let wanted = min(wanted, lineCount - first)
+        var delivered = 0, stopped = false
+        var pending: [UInt8] = [] // A line so far, when it runs across pieces.
+        forEachSegment(in: lineStart(first)..<count) { _, bytes, length in
+            var cursor = 0
+            while cursor < length {
+                guard let hit = memchr(bytes + cursor, Int32(breakByte), length - cursor) else {
+                    pending.append(contentsOf: UnsafeBufferPointer(start: bytes + cursor, count: length - cursor))
+                    return true
+                }
+                let end = UnsafeRawPointer(hit) - UnsafeRawPointer(bytes) + 1
+                let line = UnsafeBufferPointer(start: bytes + cursor, count: end - cursor)
+                let keep: Bool
+                if pending.isEmpty {
+                    keep = body(line)
+                } else {
+                    pending.append(contentsOf: line)
+                    keep = pending.withUnsafeBufferPointer(body)
+                    pending.removeAll(keepingCapacity: true)
+                }
+                cursor = end
+                delivered += 1
+                if !keep || delivered == wanted { stopped = true; return false }
+            }
+            return true
+        }
+        // The last line has no line break.
+        if !stopped && delivered < wanted { _ = pending.withUnsafeBufferPointer(body) }
+    }
+
     /// The line an offset is on. An offset on a line break belongs to the line it ends.
     func line(containing offset: Int) -> Int {
         let offset = min(max(0, offset), count)

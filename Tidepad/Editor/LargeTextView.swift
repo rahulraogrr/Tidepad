@@ -81,11 +81,22 @@ import SwiftUI
     }
     private var composition: Composition?
 
+    /// Syntax colours (LargeSyntaxEngine), and the background pass that works out the lexer's state
+    /// down the file.
+    private var syntax: LargeSyntaxEngine
+    private var boldFont: NSFont
+    private var syntaxTask: Task<Void, Never>?
+    private var syntaxGeneration = 0
+    /// Lines laid out with colours from a guessed lexer state, laid out again when the exact state arrives.
+    private var guessedLines = Set<Int>()
+
     init(document: EditorDocument, buffer: LargeTextBuffer, options: EditorDisplayOptions) {
         self.document = document
         self.buffer = buffer
         font = EditorFontProvider.font(configuration: options.font)
         paragraph = EditorFontProvider.paragraphStyle(font: font, configuration: options.font)
+        boldFont = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+        syntax = LargeSyntaxEngine(language: document.syntaxLanguage)
         anchor = buffer.contentStart
         head = buffer.contentStart
         ruler = LargeLineNumberRuler(scrollView: scrollView)
@@ -110,6 +121,7 @@ import SwiftUI
         setAccessibilityLabel(document.displayName)
         updateSize()
         updateStatus()
+        restartSyntaxPass()
     }
 
     required init?(coder: NSCoder) { fatalError("Not archivable") }
@@ -132,10 +144,28 @@ import SwiftUI
         let offset = newBuffer.lineStart(min(line, newBuffer.lineCount - 1))
         anchor = offset
         head = offset
+        syntax.invalidateAll()
+        restartSyntaxPass()
         updateSize()
         updateStatus()
         needsDisplay = true
         ruler.needsDisplay = true
+    }
+
+    /// Language menu: colours for another language.
+    func setLanguage(_ language: SyntaxLanguage) {
+        guard language != syntax.language else { return }
+        syntax.setLanguage(language)
+        lineCache.removeAll()
+        guessedLines.removeAll()
+        restartSyntaxPass()
+        needsDisplay = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        lineCache.removeAll() // Colours differ in dark mode.
+        needsDisplay = true
     }
 
     func applyDisplayOptions(_ options: EditorDisplayOptions) {
@@ -160,6 +190,7 @@ import SwiftUI
         ascent = ceil(font.ascender)
         lineHeight = ceil(font.ascender - font.descender + font.leading)
         advance = ("0" as NSString).size(withAttributes: [.font: font]).width
+        boldFont = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
         ruler.font = font
     }
 
@@ -206,10 +237,72 @@ import SwiftUI
         syncCaches()
         if let cached = lineCache[line], cached.range == range { return cached.line }
         if lineCache.count > 600 { lineCache.removeAll(keepingCapacity: true) }
-        let text = NSAttributedString(string: buffer.text(in: range), attributes: attributes)
+        let string = buffer.text(in: range)
+        let text = NSMutableAttributedString(string: string, attributes: attributes)
+        if syntax.isEnabled { colour(text, line: line, string: string) }
         let ctLine = CTLineCreateWithAttributedString(text)
         lineCache[line] = CachedLine(range: range, line: ctLine)
         return ctLine
+    }
+
+    // MARK: Syntax colours
+
+    /// Colours a line's text with the lexer's tokens, in Notepad++'s style (SyntaxPalette): the same
+    /// colours as the normal editor, and the real bold face of the font for keywords and operators.
+    private func colour(_ text: NSMutableAttributedString, line: Int, string: String) {
+        var units = Array(string.utf16)
+        units.append(10)
+        let tokens = syntax.tokens(line: line, units: units, lines: buffer.forEachLine)
+        if !syntax.isExact(line) {
+            if guessedLines.count > 4_096 { guessedLines.removeAll() }
+            guessedLines.insert(line)
+        }
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let whole = NSRange(location: 0, length: text.length)
+        for token in tokens {
+            let range = NSIntersectionRange(token.range, whole)
+            guard range.length > 0 else { continue }
+            text.addAttribute(.foregroundColor, value: SyntaxPalette.color(for: token.kind, language: syntax.language, dark: dark), range: range)
+            if SyntaxPalette.isBold(token.kind) { text.addAttribute(.font, value: boldFont, range: range) }
+        }
+    }
+
+    /// Starts (or restarts, after an edit) the background pass that works out the lexer's state at
+    /// every 256th line, on a snapshot of the buffer, 65,536 lines at a time, lexing the file's bytes
+    /// where they lie. `delay` lets typing finish first.
+    private func restartSyntaxPass(after delay: Duration = .zero) {
+        syntaxTask?.cancel()
+        syntaxGeneration += 1
+        guard syntax.isEnabled, syntax.language.carriesStateAcrossLines else { return }
+        let generation = syntaxGeneration
+        syntaxTask = Task { [weak self] in
+            if delay > .zero { try? await Task.sleep(for: delay) }
+            while !Task.isCancelled {
+                guard let view = self, view.syntaxGeneration == generation else { return }
+                let index = view.syntax.checkpoints.count - 1
+                guard index * LargeSyntaxEngine.stride < view.buffer.lineCount else { return }
+                let snapshot = view.buffer.snapshot(), revision = view.buffer.revision
+                let language = view.syntax.language, state = view.syntax.checkpoints[index]
+                let batch = 256
+                let states = await Task.detached(priority: .utility) {
+                    LargeSyntaxEngine.advance(language: language, from: index, state: state, count: batch,
+                                              lineCount: snapshot.lineCount, lines: snapshot.forEachLine)
+                }.value
+                guard let view = self, view.syntaxGeneration == generation, view.buffer.revision == revision,
+                      view.syntax.append(states, after: index) else { return }
+                view.syntaxAdvanced()
+                if states.count < batch { return }
+            }
+        }
+    }
+
+    /// Lines coloured from a guessed state that now have the exact one are laid out again.
+    private func syntaxAdvanced() {
+        let fixed = guessedLines.filter { syntax.isExact($0) }
+        guard !fixed.isEmpty else { return }
+        guessedLines.subtract(fixed)
+        for line in fixed { lineCache[line] = nil }
+        needsDisplay = true
     }
 
     private var attributes: [NSAttributedString.Key: Any] {
@@ -541,6 +634,10 @@ import SwiftUI
     private func noteEdit(replacing range: Range<Int>, with pieces: [LargeTextBuffer.Piece]) {
         syncCaches()
         let line = buffer.line(containing: range.lowerBound)
+        if syntax.isEnabled {
+            syntax.invalidate(fromLine: line)
+            if syntax.language.carriesStateAcrossLines { restartSyntaxPass(after: .seconds(1)) }
+        }
         // (Not for big edits such as Replace All over a long line: counting their characters costs more
         // than building the map again.)
         if var map = longLineMaps[line], range.count <= 1 << 20, pieces.count <= 1_024, pieces.allSatisfy({ $0.breaks == 0 }),

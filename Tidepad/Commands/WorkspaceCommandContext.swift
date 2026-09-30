@@ -114,7 +114,10 @@ import Observation
 
     func setLanguage(_ language: SyntaxLanguage?) {
         document?.languageOverride = language
-        if let document { session?.setLanguage(document.syntaxLanguage) }
+        if let document {
+            session?.setLanguage(document.syntaxLanguage)
+            largeView?.setLanguage(document.syntaxLanguage)
+        }
     }
 
     enum TextCommand {

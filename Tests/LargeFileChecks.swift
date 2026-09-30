@@ -6,7 +6,7 @@ import Foundation
     static func main() throws {
         try fileChecks()
         try bufferChecks()
-        print("Large file checks passed: sparse line index, line breaks, BOM, characters and words, UTF-16 refused; 3,000 random edits, lines after edits, undo, typing, find (inside pieces, across seams, backwards, any case, wrap), journals, save and re-base.")
+        print("Large file checks passed: sparse line index, line breaks, BOM, characters and words, UTF-16 refused; 3,000 random edits, lines after edits, undo, typing, find (inside pieces, across seams, backwards, any case, wrap), lines as bytes, journals, save and re-base.")
     }
     static func fileChecks() throws {
     let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
@@ -138,6 +138,13 @@ import Foundation
         i = from - pat.count; while i >= 0 { if Array(hay[i..<i+pat.count]) == pat { expectedB = i..<i+pat.count; break }; i -= 1 }
         precondition(gotB == expectedB, "backwards fuzz \(pat) from \(from): \(String(describing: gotB)) vs \(String(describing: expectedB))")
     }
+    // Lines as bytes with their line breaks, across pieces.
+    var gathered: [[UInt8]] = []
+    b.forEachLine(from: 0, count: b.lineCount) { gathered.append(Array($0)); return true }
+    precondition(gathered.count == b.lineCount && gathered.flatMap { $0 } == b.bytes(in: 0..<b.count), "forEachLine covers the text")
+    var some = 0
+    b.forEachLine(from: 10, count: 5) { line in some += 1; precondition(Array(line) == b.bytes(in: b.lineStart(10 + some - 1)..<b.lineStart(10 + some))); return some < 3 }
+    precondition(some == 3, "forEachLine stops")
     // Snapshots don't follow later edits.
     let snap = b.snapshot(), snapBytes = snap.bytes(in: 0..<snap.count)
     b.replace(0..<0, with: b.pieces(for: Array("later".utf8)))

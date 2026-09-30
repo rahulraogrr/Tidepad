@@ -53,6 +53,19 @@ repository, whoever (or whatever) writes it.
   Limits: a match can't be longer than 64 KB, and look-arounds see 4 KB. Plain text stays a byte
   search (memchr/memmem). ^ and $ match at every line in both editors, as in Notepad++. Replace All
   goes in as pieces over the file (nothing rewritten), capped at 100,000 like the normal editor.
+- Large-file colours (2026-09-30): the normal editor's `LineLexer` and `SyntaxPalette`, lexing only
+  the lines drawn (`LargeSyntaxEngine`). Lexer states at every 256th line are worked out by a
+  low-priority background pass from the top; until it reaches a line, its state is guessed from 200
+  lines above, and the view redraws when the exact state arrives. Lexing the whole file up to the
+  viewport first, as Scintilla does, was rejected: seconds of waiting on every jump in a 500 MB file.
+  Bold is the font's real bold face (`NSFontManager`). Lines over 16 KB (drawn in slices) aren't coloured.
+- Lexer speed (2026-09-30, `Tests/run-lexer-performance.sh`): `LineLexer` reads UTF-16 or UTF-8 through
+  one generic implementation (everything it matches is ASCII), matches keywords in place from tables
+  by length and first letter, keeps its state as a plain value, and skips lines where nothing can open
+  a string, comment or tag when only following the state. The large-file pass lexes the mapped bytes
+  where they lie (`LargeTextBuffer.forEachLine`). Measured, optimised build: tokens 19 → 148 MB/s,
+  background pass 15 → 240 MB/s (500 MB in about 2 s). Debug builds run such code 25–50× slower, so
+  judge speed in a Release build. Parallel lexing was not needed.
 - Terminal panel (2026-09-28): the shell runs on a pseudo-terminal created with `forkpty` from macOS's
   C library, not Foundation's `Process`, because `Process` can't give the shell a controlling
   terminal, which job control, Ctrl-C and full-screen programs need; Terminal.app works the same way.
