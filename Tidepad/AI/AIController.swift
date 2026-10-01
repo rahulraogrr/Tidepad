@@ -50,23 +50,31 @@ import Observation
             showPanel()
             return
         }
-        let input: (text: String, source: Source?, language: String?)
+        let input: Input
         if case .regex = request {
-            input = ("", nil, nil)
+            input = ("", nil, nil, false)
         } else {
             guard let found = selectedText(for: request) else { return }
             input = found
         }
         stop()
         self.request = request
-        source = input.source
+        source = nil
         output = ""
         pattern = nil
         failed = false
         showPanel()
         if let reason = OnDeviceModel.unavailableReason() { fail(reason); return }
         let prompt = AIPrompt(request, text: input.text, language: input.language)
-        note = prompt.clipped ? "Only the first \(AIPrompt.inputLimit.formatted()) characters were used." : ""
+        // Replace may only change the text the model was given.
+        source = input.source.map { Self.narrowed($0, to: prompt.usedText) }
+        if prompt.clipped || input.partial {
+            note = isRewrite
+                ? "Only the first \(AIPrompt.inputLimit.formatted()) characters were rewritten. Replace changes just those."
+                : "Only the first \(AIPrompt.inputLimit.formatted()) characters were used."
+        } else {
+            note = ""
+        }
         busy = true
         task = Task { [weak self] in
             do {
@@ -164,9 +172,23 @@ import Observation
 
     // MARK: The text asked about
 
+    /// The text asked about, where it came from, its language, and whether it's only the start of the
+    /// selection (a large file's selection is read up to what the model could take).
+    private typealias Input = (text: String, source: Source?, language: String?, partial: Bool)
+
+    /// The source cut to the part of it the model was given (a prefix).
+    private static func narrowed(_ source: Source, to used: String) -> Source {
+        switch source {
+        case .text(let document, let revision, let range):
+            return .text(document: document, revision: revision, range: AIPrompt.usedRange(range, used: used))
+        case .bytes(let document, let revision, let range):
+            return .bytes(document: document, revision: revision, range: AIPrompt.usedBytes(range, used: used))
+        }
+    }
+
     /// The selection, or, with nothing selected, the caret's line (Explain), the whole document or the
     /// lines on screen in a large file (Summarise). Rewrite needs a selection.
-    private func selectedText(for request: AIRequest) -> (text: String, source: Source?, language: String?)? {
+    private func selectedText(for request: AIRequest) -> Input? {
         guard let context, let document = context.document else { NSSound.beep(); return nil }
         let language = document.syntaxLanguage == .plain ? nil : document.syntaxLanguage.displayName
         if let session = context.session {
@@ -179,7 +201,7 @@ import Observation
                 default: return needsSelection()
                 }
             }
-            return (text.substring(with: range), .text(document: document.id, revision: document.revision, range: range), language)
+            return (text.substring(with: range), .text(document: document.id, revision: document.revision, range: range), language, false)
         }
         if let view = context.largeView {
             let buffer = view.buffer
@@ -191,14 +213,17 @@ import Observation
                 default: return needsSelection()
                 }
             }
-            // Never read more than the model could take, however big the selection.
-            let read = range.lowerBound..<min(range.upperBound, range.lowerBound + AIPrompt.inputLimit * 4)
-            return (buffer.text(in: read), .bytes(document: document.id, revision: buffer.revision, range: range), language)
+            // Never read more than the model could take, however big the selection, and cut between
+            // characters, so the text read is exactly these bytes.
+            var upper = min(range.upperBound, range.lowerBound + AIPrompt.inputLimit * 4)
+            while upper > range.lowerBound && upper < range.upperBound && buffer.byte(at: upper) & 0xC0 == 0x80 { upper -= 1 }
+            let read = range.lowerBound..<upper
+            return (buffer.text(in: read), .bytes(document: document.id, revision: buffer.revision, range: read), language, upper < range.upperBound)
         }
         return nil
     }
 
-    private func needsSelection() -> (text: String, source: Source?, language: String?)? {
+    private func needsSelection() -> Input? {
         stop()
         request = nil
         output = ""

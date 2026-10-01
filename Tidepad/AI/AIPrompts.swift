@@ -36,12 +36,15 @@ struct AIPrompt: Equatable, Sendable {
     let prompt: String
     /// Whether the text was cut to fit.
     let clipped: Bool
+    /// The text the model is given: all of it, or its start when it was cut to fit.
+    let usedText: String
 
     private static let role = "You are a helpful assistant inside TidePad, a text and code editor for developers. Be accurate and concise. Don't use Markdown headings."
 
     init(_ request: AIRequest, text: String, language: String? = nil) {
         let (input, clipped) = Self.clip(text)
         self.clipped = clipped
+        usedText = input
         let kind = language.map { " (\($0))" } ?? ""
         switch request {
         case .explain:
@@ -75,6 +78,17 @@ struct AIPrompt: Equatable, Sendable {
             return (String(head[..<lastBreak]), true)
         }
         return (String(head), true)
+    }
+
+    /// The part of a selection (UTF-16) that `used`, a prefix of its text, covers: what a rewrite of
+    /// it may replace, so text the model never saw is never deleted.
+    static func usedRange(_ range: NSRange, used: String) -> NSRange {
+        NSRange(location: range.location, length: min(range.length, used.utf16.count))
+    }
+
+    /// The same for a selection of bytes (the large-file view).
+    static func usedBytes(_ range: Range<Int>, used: String) -> Range<Int> {
+        range.lowerBound..<min(range.upperBound, range.lowerBound + used.utf8.count)
     }
 
     /// The regular expression in the model's answer: the first non-empty line, without the backticks,

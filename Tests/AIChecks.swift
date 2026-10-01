@@ -23,6 +23,21 @@ import Foundation
             precondition(rewrite.prompt == "teh text" && rewrite.instructions.contains("only the rewritten text"), "Rewrite \(style)")
         }
         precondition(AIPrompt(.regex("email addresses"), text: "").prompt.hasSuffix("email addresses"))
+
+        // A rewrite of text cut to fit replaces only the part the model was given, never the rest.
+        let long = (0..<1_500).map { "😀 línea \($0) తెలుగు\r\n" }.joined()
+        let cutRewrite = AIPrompt(.rewrite(.grammar), text: long)
+        precondition(cutRewrite.clipped && long.hasPrefix(cutRewrite.usedText) && cutRewrite.prompt == cutRewrite.usedText, "The text given")
+        let selection = NSRange(location: 40, length: (long as NSString).length)
+        let used = AIPrompt.usedRange(selection, used: cutRewrite.usedText)
+        precondition(used.location == 40 && used.length == cutRewrite.usedText.utf16.count && used.length < selection.length
+                     && (long as NSString).substring(with: NSRange(location: 0, length: used.length)) == cutRewrite.usedText,
+                     "Replace covers the UTF-16 of the text given")
+        let bytes = AIPrompt.usedBytes(100..<(100 + long.utf8.count), used: cutRewrite.usedText)
+        precondition(bytes == 100..<(100 + cutRewrite.usedText.utf8.count), "And its bytes in a large file")
+        let whole = AIPrompt(.rewrite(.shorter), text: "short text")
+        precondition(!whole.clipped && AIPrompt.usedRange(NSRange(location: 3, length: 10), used: whole.usedText) == NSRange(location: 3, length: 10)
+                     && AIPrompt.usedBytes(3..<13, used: whole.usedText) == 3..<13, "All of a short selection")
         precondition(AIRequest.rewrite(.shorter).title == "Make Shorter" && AIRequest.regex("x").title == "Write Regular Expression")
 
         // Answers cleaned up.
@@ -42,6 +57,6 @@ import Foundation
         precondition(AIPrompt.cleanedRewrite("```\nFixed text.\n```") == "Fixed text.")
         precondition(AIPrompt.cleanedRewrite("```markdown\n- one\n- two\n```") == "- one\n- two")
         precondition(AIPrompt.cleanedRewrite("  The text.\n") == "The text.")
-        print("AI checks passed: text cut to fit (at line breaks, by characters), prompts for Explain, Summarise, Rewrite and regular expressions, answers cleaned up.")
+        print("AI checks passed: text cut to fit (at line breaks, by characters), Replace limited to the text given, prompts for Explain, Summarise, Rewrite and regular expressions, answers cleaned up.")
     }
 }
