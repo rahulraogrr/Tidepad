@@ -1,31 +1,5 @@
 import Foundation
 
-/// Identifies one version of a file on disk (modification date and size), so real changes by other
-/// apps can be told apart from metadata-only notifications and from Tidepad's own saves.
-struct FileStamp: Equatable, Sendable {
-    let modified: Date?
-    let size: Int?
-
-    /// nil when the file doesn't exist (or can't be inspected).
-    init?(_ url: URL) {
-        var fresh = url
-        fresh.removeAllCachedResourceValues()
-        guard let values = try? fresh.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
-              values.contentModificationDate != nil || values.fileSize != nil else { return nil }
-        modified = values.contentModificationDate
-        size = values.fileSize
-    }
-}
-
-/// Decode off the main actor; AppKit receives the resulting immutable value on the main actor.
-extension FileStamp {
-    /// A stamp recorded earlier (the session keeps them across launches).
-    init(modified: Date?, size: Int?) {
-        self.modified = modified
-        self.size = size
-    }
-}
-
 struct LoadedText: Sendable {
     let url: URL
     let text: String
@@ -68,7 +42,7 @@ enum OpenedFile: Sendable {
                                       encoding: .utf8, lineEnding: ending)
         document.hasByteOrderMark = file.hasByteOrderMark
         document.largeBuffer = buffer
-        document.diskStamp = FileStamp(file.url)
+        document.diskStamp = file.identity // Taken before cloning, so a change while opening is noticed.
         document.lineCount = buffer.lineCount
         document.utf16Length = buffer.count - buffer.contentStart
         return document
@@ -80,7 +54,8 @@ struct TextFileService {
 
     /// Opens a file for a tab, in the large-file view if it's large.
     func open(_ url: URL) throws -> OpenedFile {
-        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+        // The size of the file a link points to, not of the link.
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)[.size] as? Int) ?? 0
         if size >= LargeTextFile.threshold { return .large(try LargeTextFile(url: url)) }
         return .text(try load(url))
     }

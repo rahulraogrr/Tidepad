@@ -35,6 +35,12 @@ identifier, the Help book folder and saved-data names keep `Tidepad`, so setting
 - Documents: Tidepad uses its own `DocumentManager` built on `NSFilePresenter` / `NSFileCoordinator`
   instead of `NSDocument`, because `NSDocument` reads, autosaves and versions whole files, which
   conflicts with editing 300–500 MB files. Revisit if the large-file engine makes that workable.
+- Large-file session journals: a journal names the version of the file its ranges are in
+  (`FileStamp`, taken before cloning), and SessionKeeper keeps an APFS `clonefile` of that version
+  beside it ("<id>.journal-base"). A clone is metadata only until the original changes, so this costs
+  nothing in the usual case and replays edits over the right bytes when the file changed (another
+  app, or "Keep TidePad's Version"). On volumes without clones nothing is kept, and changed files
+  open as they are, with a message.
 - Editor engine (2026-09-27): hybrid. Files open in `NSTextView` (Apple's full text system) unless
   they're too large or have too-long lines, in which case they open in a large-file view built on Core
   Text over the piece-table storage (`Tidepad/Storage`). The mode is chosen once when the file opens

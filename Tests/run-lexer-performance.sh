@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 mkdir -p build
 flags=(-sdk "$(xcrun --show-sdk-path)" -target "$(uname -m)-apple-macosx14.0" -module-cache-path build/TestModuleCache)
 files=(Tidepad/Syntax/SyntaxLanguage.swift Tidepad/Syntax/LineLexer.swift Tidepad/Syntax/LargeSyntaxEngine.swift
-       Tidepad/Storage/LargeTextFile.swift Tidepad/Storage/LargeTextBuffer.swift Tests/LexerPerformance.swift)
+       Tidepad/Storage/FileStamp.swift Tidepad/Storage/LargeTextFile.swift Tidepad/Storage/LargeTextBuffer.swift Tests/LexerPerformance.swift)
 echo "Release (-O):"
 xcrun swiftc -O "${flags[@]}" "${files[@]}" -o build/LexerPerformance
 build/LexerPerformance "${1:-20}"

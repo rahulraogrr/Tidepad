@@ -14,6 +14,8 @@ import Observation
     @ObservationIgnored private var activationObserver: NSObjectProtocol?
     @ObservationIgnored private var folderWatcher: FolderWatcher?
     @ObservationIgnored private var watchedFolders: Set<String> = []
+    /// Shows an alert and returns the button chosen (checks replace it to answer).
+    @ObservationIgnored var ask: (NSAlert) -> NSApplication.ModalResponse = { $0.runModal() }
 
     init() {
         newDocument()
@@ -119,6 +121,11 @@ import Observation
     }
 
     @discardableResult func save(_ document: EditorDocument, saveAs: Bool = false) -> Bool {
+        save(document, saveAs: saveAs, overwrite: false)
+    }
+
+    /// `overwrite`: write even if another app changed the file since TidePad read or saved it.
+    private func save(_ document: EditorDocument, saveAs: Bool, overwrite: Bool) -> Bool {
         var destination = document.fileURL
         if saveAs || destination == nil {
             let panel = NSSavePanel()
@@ -135,18 +142,39 @@ import Observation
             alert.runModal()
             return false
         }
+        let moved = document.fileURL?.standardizedFileURL != destination.standardizedFileURL
         // A coordinated write, so other apps' file presenters are told, and ours isn't.
         var coordinationError: NSError?
         var writeError: Error?
+        var changedOnDisk = false
         NSFileCoordinator(filePresenter: presenters[document.id]).coordinate(
             writingItemAt: destination, options: .forReplacing, error: &coordinationError) { url in
+            // Not every change is announced (uncoordinated writers, network volumes, a save just before
+            // the folder watcher reports it), so the file is checked again right before it's replaced.
+            if !overwrite, !moved, let current = FileStamp(url), current != document.diskStamp {
+                changedOnDisk = true
+                return
+            }
             do { try files.write(document, to: url) } catch { writeError = error }
         }
         if let error = writeError ?? coordinationError {
             show(error)
             return false
         }
-        let moved = document.fileURL?.standardizedFileURL != destination.standardizedFileURL
+        if changedOnDisk {
+            selectedID = document.id
+            let alert = NSAlert()
+            alert.messageText = "“\(document.displayName)” was changed by another application since TidePad opened it."
+            alert.informativeText = "Saving replaces those changes with TidePad’s version."
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Save As…")
+            alert.addButton(withTitle: "Save Anyway").hasDestructiveAction = true
+            switch ask(alert) {
+            case .alertSecondButtonReturn: return save(document, saveAs: true, overwrite: false)
+            case .alertThirdButtonReturn: return save(document, saveAs: false, overwrite: true)
+            default: return false
+            }
+        }
         // A large file's edits now live in the saved file: start again from a clone of it, so pieces
         // (and memory) don't keep growing. Undo still works: its pieces keep the old sources alive.
         if let buffer = document.largeBuffer, let saved = try? LargeTextFile(url: destination), saved.count == buffer.count {
@@ -307,7 +335,7 @@ import Observation
             alert.informativeText = "Reload it from disk? Your unsaved changes in TidePad will be lost."
             alert.addButton(withTitle: "Reload")
             alert.addButton(withTitle: "Keep TidePad’s Version")
-            if alert.runModal() == .alertFirstButtonReturn {
+            if ask(alert) == .alertFirstButtonReturn {
                 do { try reloadFromDisk(document) } catch { show(error) }
             } else {
                 document.diskStamp = current // Don't ask again about this version.
@@ -316,19 +344,30 @@ import Observation
         }
     }
 
+    /// Asked once per deletion: a tab kept open no longer has a file on disk (its stamp is cleared), so
+    /// it isn't asked about again unless the file comes back.
     private func askAboutDeletedFile(_ document: EditorDocument) {
         selectedID = document.id
+        let unsaved = document.hasUnsavedChanges
         let alert = NSAlert()
         alert.messageText = "“\(document.displayName)” was deleted or moved to the Trash by another application."
-        alert.informativeText = "Keep it open in TidePad? You can save it again to recreate the file."
+        alert.informativeText = unsaved
+            ? "It has unsaved changes in TidePad. Keep it open to save it again, or save it somewhere else."
+            : "Keep it open in TidePad? You can save it again to recreate the file."
         alert.addButton(withTitle: "Keep Open")
-        alert.addButton(withTitle: "Close")
-        if alert.runModal() == .alertFirstButtonReturn {
-            document.markUnsaved()
-        } else if let index = documents.firstIndex(where: { $0.id == document.id }) {
+        alert.addButton(withTitle: "Save As…")
+        alert.addButton(withTitle: unsaved ? "Close and Discard Changes" : "Close").hasDestructiveAction = unsaved
+        switch ask(alert) {
+        case .alertThirdButtonReturn:
+            guard let index = documents.firstIndex(where: { $0.id == document.id }) else { return }
             documents.remove(at: index)
             unwatch(document.id)
             if selectedID == document.id { selectedID = documents.isEmpty ? nil : documents[min(index, documents.count - 1)].id }
+        case .alertSecondButtonReturn where save(document, saveAs: true):
+            break
+        default:
+            document.markUnsaved() // The text is no longer on disk.
+            document.diskStamp = nil
         }
     }
 
@@ -339,8 +378,9 @@ import Observation
         guard let url = document.fileURL else { return }
         if document.isLarge {
             // Map a fresh clone of the changed file; the view keeps its place (see LargeTextView.replaceFile).
-            document.largeBuffer = LargeTextBuffer(file: try LargeTextFile(url: url))
-            document.diskStamp = FileStamp(url)
+            let file = try LargeTextFile(url: url)
+            document.largeBuffer = LargeTextBuffer(file: file)
+            document.diskStamp = file.identity
             pendingExternalChanges.remove(document.id)
             return
         }

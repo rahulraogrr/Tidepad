@@ -71,6 +71,18 @@ import Foundation
     let text = lines.joined(separator: "\n") + "\n"
     let b = try buffer(text)
     precondition(b.lineCount == 1001)
+    // The stamp is taken before the file is cloned; links are followed; the bytes can come from a kept
+    // copy while the tab keeps the file's own name and place.
+    let opened = dir.appendingPathComponent("f.txt")
+    precondition(b.file.identity != nil && b.file.identity == FileStamp(opened), "Opening records the file's stamp")
+    let linked = dir.appendingPathComponent("link.txt")
+    try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: opened)
+    let throughLink = try LargeTextFile(url: linked)
+    precondition(throughLink.count == b.file.count && throughLink.identity == FileStamp(opened) && throughLink.url == linked, "Opened through a link")
+    let copy = dir.appendingPathComponent("kept-copy")
+    try Data("kept\nbytes\n".utf8).write(to: copy)
+    let fromCopy = try LargeTextFile(url: opened, contentsOf: copy)
+    precondition(fromCopy.url == opened && fromCopy.count == 11 && fromCopy.lineCount == 3, "Bytes from a kept copy")
     for k in [0, 1, 63, 64, 65, 500, 999] {
         precondition(b.text(in: b.lineRange(k)) == lines[k])
         let r = b.lineRange(k); precondition(b.line(containing: r.lowerBound) == k && b.line(containing: r.upperBound) == k)
@@ -171,6 +183,9 @@ import Foundation
     precondition(replayed.bytes(in: 0..<replayed.count) == b.bytes(in: 0..<b.count) && replayed.lineCount == b.lineCount, "Journal replay")
     precondition(journalData.count < 100_000, "The journal holds the edits, not the file: \(journalData.count) bytes")
     precondition((try? LargeTextBuffer(file: b.file, journal: LargeTextBuffer.Journal(entries: [.init(fromFile: true, start: 0, length: b.file.count + 1)]), data: Data())) == nil, "A journal that doesn't fit the file is refused")
+    precondition(journal.base != nil && journal.base == b.file.identity, "A journal names the version of the file it was made against")
+    let oldJournal = try JSONDecoder().decode(LargeTextBuffer.Journal.self, from: Data(#"{"entries":[{"fromFile":true,"start":0,"length":3}]}"#.utf8))
+    precondition(oldJournal.base == nil && oldJournal.entries.count == 1, "Journals from before 1.0 are still read")
     // Save and rebase
     let out = dir.appendingPathComponent("saved.txt")
     try b.write(to: out)

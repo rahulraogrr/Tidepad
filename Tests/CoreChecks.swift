@@ -115,6 +115,29 @@ import Foundation
         precondition(stampedDocument.diskStamp == firstStamp, "Loading records the file's stamp")
         try "abc".write(to: stamped, atomically: false, encoding: .utf8)
         precondition(FileStamp(stamped) != firstStamp, "The stamp changes with the content")
+        // A link's stamp is its target's, so changes to a linked dotfile are noticed.
+        let stampLink = directory.appendingPathComponent("stamp-link.txt")
+        try? FileManager.default.removeItem(at: stampLink)
+        try FileManager.default.createSymbolicLink(at: stampLink, withDestinationURL: stamped)
+        let linkStamp = FileStamp(stampLink)
+        precondition(linkStamp == FileStamp(stamped) && linkStamp?.size == 3, "A link is stamped as its target")
+        try "abcdef".write(to: stamped, atomically: false, encoding: .utf8)
+        precondition(FileStamp(stampLink) != linkStamp, "A change to a link's target changes the link's stamp")
+        try FileManager.default.removeItem(at: stampLink)
+        // A file replaced by another with the same date and size is still a change (on macOS, which
+        // gives files numbers); stamps saved without a number still match.
+        let sameDate = FileStamp(stamped)!
+        let replacement = directory.appendingPathComponent("stamp-replacement.txt")
+        try "abcdef".write(to: replacement, atomically: false, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: sameDate.modified!], ofItemAtPath: replacement.path)
+        _ = try FileManager.default.replaceItemAt(stamped, withItemAt: replacement)
+        #if os(macOS)
+        precondition(FileStamp(stamped) != sameDate, "A replaced file is a change")
+        #endif
+        precondition(FileStamp(modified: sameDate.modified, size: sameDate.size) == sameDate, "A stamp without a file number")
+        let encodedStamp = try JSONEncoder().encode(sameDate)
+        let decodedStamp = try JSONDecoder().decode(FileStamp.self, from: encodedStamp)
+        precondition(decodedStamp == sameDate, "Stamps are saved and read back")
         try FileManager.default.removeItem(at: stamped)
         precondition(FileStamp(stamped) == nil, "No stamp for a missing file")
         let kept = EditorDocument(text: "x")

@@ -45,24 +45,34 @@ final class LargeTextFile: @unchecked Sendable {
     let longestLine: Int
     /// Whether the text was mapped from an APFS clone (false: read into memory).
     let isCloned: Bool
+    /// The file's stamp, taken before it was cloned: the version these bytes are, as far as can be
+    /// told (a change made while opening then still shows as a change).
+    let identity: FileStamp?
+    /// The clone that's mapped, while this is open (nil when the file was read into memory).
+    var clonePath: String? { cloneFolder.map { $0.appendingPathComponent(cloneName).path } }
 
     let base: UnsafePointer<UInt8>
     private let mapped: Bool
     private let cloneFolder: URL?
+    private let cloneName: String
     private let samples: [Int]
     private let breakByte: UInt8
 
-    /// Maps (or reads) the file and indexes its lines.
-    init(url: URL) throws {
-        let size = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int ?? 0
+    /// Maps (or reads) the file and indexes its lines. `contents`: where to read the bytes from instead
+    /// of `url` (a copy kept with the session, for edits made against an earlier version of the file).
+    init(url: URL, contentsOf contents: URL? = nil) throws {
+        // Links are followed: the clone and the stamp are of the file they point to.
+        let original = (contents ?? url).resolvingSymlinksInPath()
+        identity = FileStamp(original)
 
-        var source = url.path
+        var source = original.path
         var folder: URL?
+        let name = url.lastPathComponent
         #if os(macOS)
-        if size > 0, let replacement = try? FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask,
-                                                                    appropriateFor: url, create: true) {
-            let clone = replacement.appendingPathComponent(url.lastPathComponent)
-            if clonefile(url.path, clone.path, 0) == 0 {
+        if let replacement = try? FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                                          appropriateFor: original, create: true) {
+            let clone = replacement.appendingPathComponent(name)
+            if clonefile(original.path, clone.path, 0) == 0 {
                 source = clone.path
                 folder = replacement
             } else {
@@ -71,22 +81,30 @@ final class LargeTextFile: @unchecked Sendable {
         }
         #endif
 
-        let bytes: UnsafePointer<UInt8>, isMapped: Bool
-        if size == 0 {
-            bytes = UnsafePointer(UnsafeMutablePointer<UInt8>.allocate(capacity: 1))
-            isMapped = false
-        } else if folder != nil {
+        // The size is the clone's own (fstat), never an earlier look at the path: the original may have
+        // changed in between, and mapping past the end of a file crashes.
+        let bytes: UnsafePointer<UInt8>, isMapped: Bool, size: Int
+        if folder != nil {
             let descriptor = open(source, O_RDONLY)
             guard descriptor >= 0 else { throw CocoaError(.fileReadNoPermission, userInfo: [NSURLErrorKey: url]) }
             defer { close(descriptor) }
-            guard let region = mmap(nil, size, PROT_READ, MAP_SHARED, descriptor, 0), region != MAP_FAILED else {
-                throw CocoaError(.fileReadUnknown, userInfo: [NSURLErrorKey: url])
+            var info = stat()
+            guard fstat(descriptor, &info) == 0 else { throw CocoaError(.fileReadUnknown, userInfo: [NSURLErrorKey: url]) }
+            size = Int(info.st_size)
+            if size == 0 {
+                bytes = UnsafePointer(UnsafeMutablePointer<UInt8>.allocate(capacity: 1))
+                isMapped = false
+            } else {
+                guard let region = mmap(nil, size, PROT_READ, MAP_SHARED, descriptor, 0), region != MAP_FAILED else {
+                    throw CocoaError(.fileReadUnknown, userInfo: [NSURLErrorKey: url])
+                }
+                bytes = UnsafePointer(region.assumingMemoryBound(to: UInt8.self))
+                isMapped = true
             }
-            bytes = UnsafePointer(region.assumingMemoryBound(to: UInt8.self))
-            isMapped = true
         } else {
-            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: size)
-            let data = try Data(contentsOf: url)
+            let data = try Data(contentsOf: original)
+            size = data.count
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: max(1, size))
             _ = data.copyBytes(to: UnsafeMutableBufferPointer(start: buffer, count: size))
             bytes = UnsafePointer(buffer)
             isMapped = false
@@ -138,6 +156,7 @@ final class LargeTextFile: @unchecked Sendable {
         base = bytes
         mapped = isMapped
         cloneFolder = folder
+        cloneName = name
         isCloned = folder != nil
         hasByteOrderMark = bom
         contentStart = first

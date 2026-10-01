@@ -210,6 +210,8 @@ final class LargeTextBuffer: @unchecked Sendable {
             let length: Int
         }
         var entries: [Entry]
+        /// The version of the file the entries' ranges are in (nil in journals from before 1.0).
+        var base: FileStamp?
     }
 
     func journal() -> (journal: Journal, data: Data) {
@@ -223,11 +225,11 @@ final class LargeTextBuffer: @unchecked Sendable {
                 data.append(piece.source.base + piece.start, count: piece.length)
             }
         }
-        return (Journal(entries: entries), data)
+        return (Journal(entries: entries, base: file.identity), data)
     }
 
-    /// A buffer with a journal's edits over `file`, which must be the file the journal was written for,
-    /// unchanged (callers check its modification date and size).
+    /// A buffer with a journal's edits over `file`, which must hold the bytes the journal was written
+    /// for: the version in `journal.base`, or the copy SessionKeeper kept of it.
     convenience init(file: LargeTextFile, journal: Journal, data: Data) throws {
         self.init(file: file)
         let fileEntries = journal.entries.filter(\.fromFile)

@@ -21,6 +21,7 @@
 		3A74F76FC61B62C9177A853E /* Tests/MenuValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 409A6356C4ED3EF104316B5B /* Tests/MenuValidation.swift */; };
 		3B99F1E5A8C545810ADFB034 /* Tidepad/Views/EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4B2A5D606301191470AD4E /* Tidepad/Views/EditorView.swift */; };
 		4630E0BDDBDFC2EFCCF6B97C /* Tidepad/Documents/TextFileService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 752A81EB2AED49A78E4DDBD4 /* Tidepad/Documents/TextFileService.swift */; };
+		7D1C0A55E7B14F2A9C3E00C2 /* Tidepad/Storage/FileStamp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1C0A55E7B14F2A9C3E00C1 /* Tidepad/Storage/FileStamp.swift */; };
 		4CA528783F9B06241CA7F402 /* Tidepad/Search/SearchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8410E0B3641D840470752629 /* Tidepad/Search/SearchEngine.swift */; };
 		4CC93069AD994E002124BFB0 /* Tidepad/Syntax/SyntaxLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5162B3C9C16E84C0D05DC3D2 /* Tidepad/Syntax/SyntaxLanguage.swift */; };
 		53ED3A9BB1370BB9E556D764 /* Tidepad/Syntax/LineLexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 070219510E721EC0C92386A5 /* Tidepad/Syntax/LineLexer.swift */; };
@@ -124,6 +125,7 @@
 		52932218E5993C1B4BA86BE3 /* Tidepad/Commands/FileCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Commands/FileCommands.swift; sourceTree = SOURCE_ROOT; };
 		5C26016D9F7C0B7B147CC3FD /* Tidepad/Commands/NativeMenuCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Commands/NativeMenuCoordinator.swift; sourceTree = SOURCE_ROOT; };
 		752A81EB2AED49A78E4DDBD4 /* Tidepad/Documents/TextFileService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Documents/TextFileService.swift; sourceTree = SOURCE_ROOT; };
+		7D1C0A55E7B14F2A9C3E00C1 /* Tidepad/Storage/FileStamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Storage/FileStamp.swift; sourceTree = SOURCE_ROOT; };
 		80158EF547754EE09B05D24A /* Tidepad/Utilities/EditorFontProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Utilities/EditorFontProvider.swift; sourceTree = SOURCE_ROOT; };
 		8410E0B3641D840470752629 /* Tidepad/Search/SearchEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Search/SearchEngine.swift; sourceTree = SOURCE_ROOT; };
 		8C18EB6873C721855744D946 /* Tidepad/Commands/SettingsCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tidepad/Commands/SettingsCommands.swift; sourceTree = SOURCE_ROOT; };
@@ -254,6 +256,7 @@
 				0F73584ED4D33C1E45EC0029 /* Tidepad/App/TidepadApp.swift */,
 				03C6598A4135AC8D7F807767 /* Tidepad/Documents/DocumentManager.swift */,
 				752A81EB2AED49A78E4DDBD4 /* Tidepad/Documents/TextFileService.swift */,
+				7D1C0A55E7B14F2A9C3E00C1 /* Tidepad/Storage/FileStamp.swift */,
 				2CB449716E85BAF142013298 /* Tidepad/Editor/AppKitTextView.swift */,
 				B4A2689D6EE9A1B6B07CF426 /* Tidepad/Editor/EditorSession.swift */,
 				C44FF9786F5CB8AA0CABA3F6 /* Tidepad/Editor/LineIndex.swift */,
@@ -409,6 +412,7 @@
 				3023F30948EDF4AB9BEC7A84 /* Tidepad/App/TidepadApp.swift in Sources */,
 				D5FD81394588487A308173AD /* Tidepad/Documents/DocumentManager.swift in Sources */,
 				4630E0BDDBDFC2EFCCF6B97C /* Tidepad/Documents/TextFileService.swift in Sources */,
+				7D1C0A55E7B14F2A9C3E00C2 /* Tidepad/Storage/FileStamp.swift in Sources */,
 				D9B08B98CEF0A3E2FED2670B /* Tidepad/Editor/AppKitTextView.swift in Sources */,
 				3584A20D555AFE96EDC0A430 /* Tidepad/Editor/EditorSession.swift in Sources */,
 				C6ACD85BC0F1DEFE6501D169 /* Tidepad/Editor/LineIndex.swift in Sources */,

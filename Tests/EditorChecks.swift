@@ -126,7 +126,7 @@ import AppKit
         precondition(SessionKeeper(manager: manager, sessions: EditorSessionStore(), terminal: TerminalPanel(), directory: sessionDirectory).save(),
                      "Unsaved large-file edits are kept")
         let journalSize = try FileManager.default.contentsOfDirectory(at: sessionDirectory, includingPropertiesForKeys: [.fileSizeKey])
-            .filter { $0.lastPathComponent.contains(".journal") }
+            .filter { $0.lastPathComponent.contains(".journal") && !$0.lastPathComponent.hasSuffix("-base") } // The kept clone takes no space.
             .reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
         precondition(journalSize > 0 && journalSize < 100_000, "The journal holds the edits, not the file: \(journalSize) bytes")
         let relaunched = DocumentManager()
@@ -134,6 +134,29 @@ import AppKit
         guard let restored = relaunched.documents.first, let restoredBuffer = restored.largeBuffer else { fatalError("The large tab comes back") }
         precondition(restored.hasUnsavedChanges && restoredBuffer.bytes(in: 0..<restoredBuffer.count) == expected
                      && restoredBuffer.text(in: restoredBuffer.lineRange(7)).hasPrefix("KEPT 2026"), "Edits come back, still unsaved")
+        // Another app rewrites the start of the file (same size), and "Keep TidePad's Version" is chosen.
+        // The edits must come back over the version they were made against, never over the new bytes.
+        let rewrite = try FileHandle(forWritingTo: url)
+        try rewrite.write(contentsOf: Data("CHANGED BY ANOTHER APP".utf8)); try rewrite.close()
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: url.path)
+        restored.diskStamp = FileStamp(url) // What Keep TidePad's Version does.
+        precondition(SessionKeeper(manager: relaunched, sessions: EditorSessionStore(), terminal: TerminalPanel(), directory: sessionDirectory).save())
+        let keptCopy = try FileManager.default.contentsOfDirectory(atPath: sessionDirectory.path).contains { $0.hasSuffix(".journal-base") }
+        precondition(keptCopy == restoredBuffer.file.isCloned, "The version the edits were made against is kept (as a clone)")
+        let third = DocumentManager()
+        var told: [String] = []
+        let thirdKeeper = SessionKeeper(manager: third, sessions: EditorSessionStore(), terminal: TerminalPanel(), directory: sessionDirectory)
+        thirdKeeper.tell = { message, _ in told.append(message) }
+        thirdKeeper.restore()
+        if keptCopy {
+            guard let again = third.documents.first, let againBuffer = again.largeBuffer else { fatalError("The large tab comes back again") }
+            precondition(againBuffer.bytes(in: 0..<againBuffer.count) == expected && again.hasUnsavedChanges && told.isEmpty
+                         && again.diskStamp == FileStamp(url) && again.fileURL == url,
+                         "TidePad's version comes back over the bytes it was made against")
+        } else {
+            precondition(told.count == 1 && third.documents.first?.largeBuffer?.bytes(in: 0..<22) == Array("CHANGED BY ANOTHER APP".utf8),
+                         "Without a clone, the file opens as it is and TidePad says the edits couldn't be restored")
+        }
         window.displayIfNeeded()
         window.contentView = nil
         print(String(format: "PASS large file: %d MB opened in %.0f ms (%@), %d lines, Go to Line, selection, Copy, typing (%.2f ms a key), Return, delete, paste, input methods, Replace All of 1,000 (regex) in %.1f ms, undo/redo, save in %.0f ms, unsaved edits kept across launches",
@@ -388,6 +411,45 @@ import AppKit
         let written = try String(contentsOf: edited, encoding: .utf8)
         precondition(written == "edited but not saved\n", "The restored tab saves to its file")
 
+        // A session file TidePad can't read: the folder is kept aside with its backups, never cleaned up.
+        for old in try fm.contentsOfDirectory(atPath: output.path) where old.hasPrefix("Session (not restored") {
+            try fm.removeItem(at: output.appendingPathComponent(old))
+        }
+        let damaged = output.appendingPathComponent("Session")
+        try? fm.removeItem(at: damaged)
+        try fm.createDirectory(at: damaged, withIntermediateDirectories: true)
+        try "{ not a session".write(to: damaged.appendingPathComponent("session.json"), atomically: true, encoding: .utf8)
+        try "precious\n".write(to: damaged.appendingPathComponent("\(UUID().uuidString).txt"), atomically: true, encoding: .utf8)
+        let damagedKeeper = SessionKeeper(manager: DocumentManager(), sessions: EditorSessionStore(), terminal: TerminalPanel(), directory: damaged)
+        var told: [String] = []
+        damagedKeeper.tell = { message, _ in told.append(message) }
+        damagedKeeper.restore()
+        precondition(damagedKeeper.save(), "A new session starts")
+        let aside = try fm.contentsOfDirectory(atPath: output.path).filter { $0.hasPrefix("Session (not restored") }
+        precondition(told.count == 1 && aside.count == 1, "TidePad says so, and keeps the old session aside: \(told) \(aside)")
+        let asideFiles = try fm.contentsOfDirectory(atPath: output.appendingPathComponent(aside[0]).path)
+        precondition(asideFiles.contains("session.json") && asideFiles.contains { $0.hasSuffix(".txt") }, "The backups are kept: \(asideFiles)")
+        try fm.removeItem(at: output.appendingPathComponent(aside[0]))
+        // Sessions written by other versions (keys missing or added) still open.
+        try fm.removeItem(at: damaged)
+        try fm.createDirectory(at: damaged, withIntermediateDirectories: true)
+        let oldSession = #"{"tabs":[{"path":"\#(clean.path)","later":true}],"selected":0,"somethingNew":1}"#
+        try oldSession.write(to: damaged.appendingPathComponent("session.json"), atomically: true, encoding: .utf8)
+        let older = DocumentManager()
+        let olderKeeper = SessionKeeper(manager: older, sessions: EditorSessionStore(), terminal: TerminalPanel(), directory: damaged)
+        olderKeeper.tell = { message, _ in told.append(message) }
+        olderKeeper.restore()
+        precondition(told.count == 1 && older.documents.contains { $0.fileURL?.lastPathComponent == "session-clean.txt" && $0.text == "clean\n" },
+                     "A session with missing and unknown keys is read")
+        // Backups are only cleaned up once the session that no longer lists them is written.
+        try fm.removeItem(at: damaged)
+        try fm.createDirectory(at: damaged.appendingPathComponent("session.json"), withIntermediateDirectories: true) // Can't be written.
+        let orphan = damaged.appendingPathComponent("\(UUID().uuidString).txt")
+        try "unlisted\n".write(to: orphan, atomically: true, encoding: .utf8)
+        precondition(!SessionKeeper(manager: DocumentManager(), sessions: EditorSessionStore(), terminal: TerminalPanel(), directory: damaged).save()
+                     && fm.fileExists(atPath: orphan.path), "A failed save cleans nothing up")
+        try fm.removeItem(at: damaged)
+
         // Settings are remembered.
         let suite = "TidepadEditorChecksPreferences"
         guard let defaults = UserDefaults(suiteName: suite) else { fatalError("Missing defaults") }
@@ -599,8 +661,50 @@ import AppKit
         // With no unsaved edits in Tidepad, a changed file reloads quietly, without asking.
         manager.checkOpenFilesOnDisk()
         precondition(document.text == "three\nfour\n" && !document.hasUnsavedChanges && manager.pendingExternalChanges.isEmpty, "Quiet reload")
+
+        // Saving over a change no one announced asks first, rather than overwriting it.
+        var asked: [(message: String, buttons: [String])] = []
+        var answer = NSApplication.ModalResponse.alertFirstButtonReturn
+        manager.ask = { alert in asked.append((alert.messageText, alert.buttons.map(\.title))); return answer }
+        document.text = "mine\n"
+        let unannounced = try FileHandle(forWritingTo: url)
+        try unannounced.seekToEnd(); try unannounced.write(contentsOf: Data("five\n".utf8)); try unannounced.close()
+        func onDisk() -> String { (try? String(contentsOf: url, encoding: .utf8)) ?? "(missing)" }
+        answer = .alertFirstButtonReturn // Cancel
+        precondition(!manager.save(document) && asked.count == 1 && asked[0].buttons == ["Cancel", "Save As…", "Save Anyway"]
+                     && onDisk() == "three\nfour\nfive\n" && document.hasUnsavedChanges,
+                     "Save asks before overwriting another app's change: \(asked)")
+        answer = .alertThirdButtonReturn // Save Anyway
+        precondition(manager.save(document) && asked.count == 2 && onDisk() == "mine\n"
+                     && !document.hasUnsavedChanges, "Save Anyway")
+        document.text = "again\n"
+        precondition(manager.save(document) && asked.count == 2, "No question when nothing changed on disk")
+
+        // A deleted file with unsaved edits: Keep Open keeps them, and it isn't asked about again.
+        document.text = "unsaved\n"
+        try FileManager.default.removeItem(at: url)
+        answer = .alertFirstButtonReturn // Keep Open
+        manager.checkOpenFilesOnDisk()
+        precondition(asked.count == 3 && asked[2].buttons == ["Keep Open", "Save As…", "Close and Discard Changes"]
+                     && manager.documents.contains { $0.id == document.id } && document.text == "unsaved\n" && document.hasUnsavedChanges,
+                     "Keep Open: \(asked)")
+        manager.checkOpenFilesOnDisk()
+        precondition(asked.count == 3, "A deleted file is asked about once")
+        precondition(manager.save(document) && onDisk() == "unsaved\n" && asked.count == 3,
+                     "Saving recreates the file")
+        // Closing a deleted tab discards its edits only when that's what the button says.
+        let gone = output.appendingPathComponent("gone.txt")
+        try "gone\n".write(to: gone, atomically: false, encoding: .utf8)
+        manager.open([gone])
+        guard let goneDocument = manager.selectedDocument, goneDocument.fileURL == gone else { fatalError("Missing tab") }
+        goneDocument.text = "edited\n"
+        try FileManager.default.removeItem(at: gone)
+        answer = .alertThirdButtonReturn
+        manager.checkOpenFilesOnDisk()
+        precondition(asked.count == 4 && asked[3].buttons.last == "Close and Discard Changes" && !manager.documents.contains { $0.id == goneDocument.id },
+                     "Close and Discard Changes")
         manager.closeAll()
-        print("PASS external change detection, reload, own saves ignored")
+        print("PASS external change detection, reload, own saves ignored, unannounced changes before saving, deleted files")
     }
 
     @MainActor static func checkDocumentGroups(output: URL) throws {
