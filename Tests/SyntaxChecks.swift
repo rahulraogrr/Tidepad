@@ -127,7 +127,8 @@ final class SyntaxDocument {
             (.html, "<!-- note --> <div class=\"demo\">Hello</div>", [.comment, .tag, .string, .punctuation]),
             (.css, "/* note */ .item { color: 'red'; width: 42px; display: flex; }", [.comment, .keyword, .number, .string, .punctuation]),
             (.yaml, "name: \"hello\" # note\ncount: 42\nenabled: true\nvalue: null", [.keyword, .string, .number, .comment, .literal, .punctuation]),
-            (.markdown, "# Heading\nText with `code` and **emphasis** [link](url)", [.heading, .string, .punctuation])
+            (.markdown, "# Heading\nText with `code` and **emphasis** [link](url)", [.heading, .string, .punctuation]),
+            (.python, "def greet(name):  # note\n    return f\"hi {name}\" if True else None\nx = 42", [.keyword, .string, .comment, .number, .punctuation])
         ]
         for (language, source, expected) in fixtures {
             let document = SyntaxDocument(source, language)
@@ -135,6 +136,16 @@ final class SyntaxDocument {
             for kind in expected { precondition(tokens.contains { $0.kind == kind }, "Missing \(kind) in \(language)") }
             precondition(tokens.allSatisfy { NSMaxRange($0.range) <= document.length })
         }
+
+        // Python: triple-quoted strings with either quote span lines; # inside a string isn't a comment;
+        // a one-line string left open doesn't run on.
+        let python = SyntaxDocument("x = \'\'\'one # not a comment\ntwo\n\'\'\' # done\ndoc = \"\"\"a\nb\"\"\"\nbad = 'open\ny = 1\n", .python)
+        precondition(python.tokens(line: 1).map(\.kind) == [.string] && python.tokens(line: 0).last?.kind == .string, "Python \'\'\' spans lines")
+        precondition(python.tokens(line: 2).map(\.kind) == [.string, .comment], "Python \'\'\' closes, then a comment")
+        precondition(python.tokens(line: 4).first?.kind == .string, "Python \"\"\" spans lines")
+        precondition(python.tokens(line: 6).contains { $0.kind == .number } && !python.tokens(line: 6).contains { $0.kind == .string },
+                     "A one-line Python string ends with its line")
+        precondition(SyntaxLanguage(fileExtension: "py") == .python && SyntaxLanguage(fileExtension: "PYI") == .python, "Python extensions")
 
         // JSON: property names versus string values, including escaped quotes and a colon later on the line.
         let json = SyntaxDocument("{\n  \"na\\\"me\" : \"a: b\",\n  \"list\": [\"x\", \"y\"],\n  \"url\": \"https://example.com\"\n}\n", .json)
@@ -243,6 +254,6 @@ final class SyntaxDocument {
         precondition(BracketMatcher.match(in: "", caret: 0).isEmpty)
         encodingChecks()
         largeEngineChecks()
-        print("Syntax checks passed: all 11 languages, JSON property names, lazy lexing and checkpoints, edits and random edits, long lines, UTF-16 offsets, brackets; the same tokens and states from UTF-8 and UTF-16; the large-file view's colouring (exact from the background pass, guessed before it, after edits).")
+        print("Syntax checks passed: all 12 languages, JSON property names, lazy lexing and checkpoints, edits and random edits, long lines, UTF-16 offsets, brackets; the same tokens and states from UTF-8 and UTF-16; the large-file view's colouring (exact from the background pass, guessed before it, after edits).")
     }
 }

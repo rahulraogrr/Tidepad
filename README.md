@@ -71,7 +71,7 @@ TidePad is a text editor for people who liked Notepad++ and moved to a Mac. It o
 
 **Editing:** tabs with unsaved-change dots, a Notepad++-style toolbar, line numbers, bracket matching, zoom, word wrap, duplicate, delete and move lines, sort lines, remove duplicate lines, UPPERCASE / lowercase / Title Case, and Format JSON, XML and SQL. Every tool undoes in one step.
 
-**Languages:** syntax colours for Swift, Java, JSON, XML, SQL, JavaScript, TypeScript, HTML, CSS, YAML and Markdown, in Notepad++’s classic colours with real bold keywords, in light and dark mode.
+**Languages:** syntax colours for Swift, Java, Python, JSON, XML, SQL, JavaScript, TypeScript, HTML, CSS, YAML and Markdown, in Notepad++’s classic colours with real bold keywords, in light and dark mode.
 
 **Large files:** files from 64 MB up open in TidePad’s large-file view, which reads only what’s on screen. Type, paste, undo, find and replace (including regular expressions), colours, Go to Line and save, all without loading the file into memory. Unsaved edits to a large file survive quitting.
 

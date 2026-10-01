@@ -1,7 +1,7 @@
 import Foundation
 
 enum SyntaxLanguage: String, Sendable, CaseIterable {
-    case plain, swift, java, json, xml, sql, javascript, typescript, html, css, yaml, markdown
+    case plain, swift, java, json, xml, sql, javascript, typescript, html, css, yaml, markdown, python
 
     init(fileExtension: String?) {
         switch fileExtension?.lowercased() {
@@ -16,6 +16,7 @@ enum SyntaxLanguage: String, Sendable, CaseIterable {
         case "css": self = .css
         case "yaml", "yml": self = .yaml
         case "md", "markdown": self = .markdown
+        case "py", "pyw", "pyi": self = .python
         default: self = .plain
         }
     }
@@ -47,6 +48,8 @@ enum SyntaxLanguage: String, Sendable, CaseIterable {
             words = "abstract any as async await boolean break case catch class const constructor continue debugger declare default delete do else enum export extends finally for from function get if implements import in infer instanceof interface keyof let module namespace never new number of private protected public readonly return set static string super switch symbol this throw try type typeof unknown var void while with yield"
         case .sql:
             words = "select from where insert into update delete create alter drop table index view join inner outer left right full on as and or not in is like between exists distinct group by having order asc desc limit offset union all values set primary key foreign references constraint default case when then else end begin commit rollback with recursive count sum avg min max"
+        case .python:
+            words = "False None True and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return self try while with yield"
         case .css:
             words = "important inherit initial unset auto none block inline flex grid relative absolute fixed solid dotted dashed px em rem vh vw rgb rgba var calc media supports keyframes from to"
         default: words = ""

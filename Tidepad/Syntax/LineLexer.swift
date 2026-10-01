@@ -24,7 +24,7 @@ struct LineLexer: Sendable {
     let language: SyntaxLanguage
     // Language traits, worked out once: they're consulted for nearly every character.
     private let isMarkup, hasSlashComments, hasBlockComments, nestsBlockComments: Bool
-    private let isSQL, isYAML, isJSON, isMarkdown, hasTripleQuotes, namesKeysAsKeywords, hasKeywords: Bool
+    private let isSQL, isYAML, isJSON, isMarkdown, isPython, hasTripleQuotes, namesKeysAsKeywords, hasKeywords: Bool
     /// Keywords and literals as ASCII, at [length * 128 + first letter] (lower case in SQL, which ignores case).
     private let keywordTable: [[[UInt8]]]
     private let literalTable: [[[UInt8]]]
@@ -49,6 +49,7 @@ struct LineLexer: Sendable {
         isYAML = language == .yaml
         isJSON = language == .json
         isMarkdown = language == .markdown
+        isPython = language == .python
         hasTripleQuotes = language == .swift || language == .java
         namesKeysAsKeywords = language == .yaml || language == .css
         let keywords = language.keywords
@@ -183,6 +184,7 @@ struct LineLexer: Sendable {
                 state.blockDepth = 1; i += 2; emit(start, i, .comment)
             } else if (hasSlashComments && pair(i, 47, 47)) ||
                         (isSQL && pair(i, 45, 45)) ||
+                        (isPython && unit == 35) ||
                         (isYAML && unit == 35 && (i == 0 || at(i - 1) == 32 || at(i - 1) == 9)) {
                 emit(i, count, .comment); i = count
             } else if isJSON && unit == 34 {
@@ -199,8 +201,9 @@ struct LineLexer: Sendable {
                 while next < count && (at(next) == 32 || at(next) == 9) { next += 1 }
                 emit(start, i, closed && next < count && at(next) == 58 ? .property : .string)
             } else if opensString(unit, at: i, state: state, previous: { at($0) }) {
-                if hasTripleQuotes && three(i, 34, 34, 34) {
-                    state.quote = 34; state.tripleQuote = true; i += 3
+                // Swift and Java have """ strings; Python has both """ and '''.
+                if (hasTripleQuotes && three(i, 34, 34, 34)) || (isPython && three(i, unit, unit, unit)) {
+                    state.quote = UInt8(unit); state.tripleQuote = true; i += 3
                 } else { state.quote = UInt8(unit); i += 1 }
                 emit(start, i, .string)
             } else if isMarkup && unit == 60 {
