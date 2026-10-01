@@ -131,8 +131,12 @@ import Observation
         case .bytes(let id, let revision, let range):
             guard let view = context.largeView, id == document.id, view.buffer.revision == revision else { return changed() }
             let bytes = Array(view.lineBreakText(output).utf8)
-            view.replace(matches: [(range: range, bytes: bytes)], in: range, select: range.lowerBound..<(range.lowerBound + bytes.count),
-                         action: request?.title ?? "Rewrite")
+            guard view.replace(matches: [(range: range, bytes: bytes)], in: range, select: range.lowerBound..<(range.lowerBound + bytes.count),
+                               action: request?.title ?? "Rewrite") else {
+                self.source = nil
+                note = "This file isn't UTF-8, so TidePad shows it read-only."
+                return
+            }
         }
         self.source = nil
         note = "Replaced. Undo (⌘Z) puts the original back."

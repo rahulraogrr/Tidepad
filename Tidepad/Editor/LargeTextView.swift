@@ -135,6 +135,7 @@ import SwiftUI
     func replaceBuffer(_ newBuffer: LargeTextBuffer) {
         history.removeAllActions()
         typingRun = nil
+        if marked != nil || composition != nil { inputContext?.discardMarkedText() }
         marked = nil
         composition = nil
         let line = buffer.line(containing: head)
@@ -350,7 +351,7 @@ import SwiftUI
             return textInset + CGFloat(map(forLine: line, range: range).characterIndex(of: offset)) * advance
         }
         guard let ctLine = cachedLine(line, range: range) else { return textInset }
-        let prefix = buffer.text(in: range.lowerBound..<offset).utf16.count
+        let prefix = buffer.utf16Count(in: range.lowerBound..<offset)
         return textInset + CTLineGetOffsetForStringIndex(ctLine, prefix, nil)
     }
 
@@ -363,10 +364,8 @@ import SwiftUI
         guard let ctLine = cachedLine(line, range: range) else { return range.lowerBound }
         let index = CTLineGetStringIndexForPosition(ctLine, CGPoint(x: x - textInset, y: 0))
         guard index != kCFNotFound else { return range.upperBound }
-        let text = buffer.text(in: range)
-        let utf16 = text.utf16
-        let position = utf16.index(utf16.startIndex, offsetBy: min(max(0, index), utf16.count))
-        return range.lowerBound + text.utf8.distance(from: text.utf8.startIndex, to: position.samePosition(in: text.utf8) ?? text.utf8.endIndex)
+        // Mapped back over the bytes themselves, so invalid bytes (one U+FFFD each) don't shift it.
+        return buffer.offset(ofUTF16: index, in: range)
     }
 
     private func offset(at point: NSPoint) -> Int {
@@ -458,6 +457,7 @@ import SwiftUI
 
     /// Selects a range and shows it, e.g. a search match or a line.
     func select(_ range: Range<Int>, center: Bool = true) {
+        commitComposition()
         typingRun = nil
         anchor = range.lowerBound
         head = range.upperBound
@@ -526,6 +526,10 @@ import SwiftUI
     private var dragUnit: (Range<Int>)?
 
     override func mouseDown(with event: NSEvent) {
+        // A click inside the text being composed belongs to the input method; anywhere else, the
+        // composition is accepted as it is first, as in NSTextView.
+        if marked != nil, inputContext?.handleEvent(event) == true { return }
+        commitComposition()
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         let offset = offset(at: point)
@@ -700,6 +704,7 @@ import SwiftUI
     /// document's saved state with it (undoing to the saved text clears the unsaved dot).
     private func replace(_ range: Range<Int>, with pieces: [LargeTextBuffer.Piece], select selection: Range<Int>? = nil,
                          action: String, state: UInt64? = nil) {
+        guard buffer.isEditable else { NSSound.beep(); return }
         typingRun = nil
         let range = clamp(range)
         let previousSelection = selectedBytes, previousState = document.editingState
@@ -717,13 +722,21 @@ import SwiftUI
 
     /// Replace and Replace All: the edits (in order, inside `range`) as one undoable step. The
     /// unchanged text between them stays pieces of the file, so nothing is copied.
-    func replace(matches edits: [(range: Range<Int>, bytes: [UInt8])], in range: Range<Int>, select selection: Range<Int>, action: String) {
-        guard !edits.isEmpty else { return }
+    /// Returns false when nothing was replaced (no edits, or a read-only file).
+    @discardableResult
+    func replace(matches edits: [(range: Range<Int>, bytes: [UInt8])], in range: Range<Int>, select selection: Range<Int>, action: String) -> Bool {
+        guard !edits.isEmpty, buffer.isEditable else { return false }
+        commitComposition()
         replace(range, with: buffer.pieces(in: clamp(range), replacing: edits), select: selection, action: action)
+        return true
     }
+
+    /// False for a file that isn't UTF-8, shown read-only.
+    var isEditable: Bool { buffer.isEditable }
 
     /// Typing: consecutive characters extend one undo step.
     private func type(_ bytes: [UInt8], replacing target: Range<Int>) {
+        guard buffer.isEditable else { NSSound.beep(); return }
         let target = clamp(target)
         let pieces = buffer.pieces(for: bytes)
         if let run = typingRun, target.isEmpty, target.lowerBound == run.start + run.length, run.revision == buffer.revision {
@@ -797,33 +810,28 @@ import SwiftUI
     private func inputFrame() -> Range<Int> {
         let range = buffer.lineRange(buffer.line(containing: head))
         guard range.count > Self.longLineLimit else { return range }
-        var lower = composition?.frameStart ?? max(range.lowerBound, head - 4_096)
+        // Where the composition's frame started, while that's still on this line before the caret.
+        var lower = max(range.lowerBound, head - 4_096)
+        if let start = composition?.frameStart, start >= range.lowerBound, start <= head { lower = start }
         while lower > range.lowerBound && buffer.byte(at: lower) & 0xC0 == 0x80 { lower -= 1 }
         var upper = min(range.upperBound, max(head, lower) + 8_192)
         while upper < range.upperBound && buffer.byte(at: upper) & 0xC0 == 0x80 { upper += 1 }
-        return lower..<upper
+        return lower..<max(lower, upper)
     }
 
     /// A byte range as UTF-16 in the input frame (clamped to the frame).
     private func utf16Range(_ bytes: Range<Int>, in frame: Range<Int>) -> NSRange {
         let lower = min(max(bytes.lowerBound, frame.lowerBound), frame.upperBound)
         let upper = min(max(bytes.upperBound, lower), frame.upperBound)
-        let location = buffer.text(in: frame.lowerBound..<lower).utf16.count
-        return NSRange(location: location, length: buffer.text(in: lower..<upper).utf16.count)
+        let location = buffer.utf16Count(in: frame.lowerBound..<lower)
+        return NSRange(location: location, length: buffer.utf16Count(in: lower..<upper))
     }
 
     /// A UTF-16 range in the input frame as bytes.
     private func byteRange(_ range: NSRange, in frame: Range<Int>) -> Range<Int>? {
-        guard range.location != NSNotFound else { return nil }
-        let text = buffer.text(in: frame)
-        func offset(_ utf16Offset: Int) -> Int {
-            let utf16 = text.utf16
-            let index = utf16.index(utf16.startIndex, offsetBy: min(max(0, utf16Offset), utf16.count))
-            let position = index.samePosition(in: text.utf8) ?? text.utf8.endIndex
-            return frame.lowerBound + text.utf8.distance(from: text.utf8.startIndex, to: position)
-        }
-        let lower = offset(range.location)
-        return lower..<max(lower, offset(range.location + range.length))
+        guard range.location != NSNotFound, range.location >= 0, range.length >= 0 else { return nil }
+        let lower = buffer.offset(ofUTF16: range.location, in: frame)
+        return lower..<max(lower, buffer.offset(ofUTF16: range.location + range.length, in: frame))
     }
 
     func insertText(_ string: Any, replacementRange: NSRange) {
@@ -846,6 +854,7 @@ import SwiftUI
     }
 
     func setMarkedText(_ string: Any, selectedRange selection: NSRange, replacementRange: NSRange) {
+        guard buffer.isEditable else { NSSound.beep(); inputContext?.discardMarkedText(); return }
         let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
         typingRun = nil
         let target = clamp(marked ?? byteRange(replacementRange, in: inputFrame()) ?? selectedBytes)
@@ -872,6 +881,16 @@ import SwiftUI
         guard marked != nil else { return }
         marked = nil
         finishComposition()
+        needsDisplay = true
+    }
+
+    /// Accepts text being composed as it is, before an edit or a selection from elsewhere (a click,
+    /// Paste, Undo, a search match), and tells the input method it's done.
+    private func commitComposition() {
+        guard marked != nil || composition != nil else { return }
+        marked = nil
+        finishComposition()
+        inputContext?.discardMarkedText()
         needsDisplay = true
     }
 
@@ -927,7 +946,11 @@ import SwiftUI
 
     // MARK: Edit menu
 
-    override func selectAll(_ sender: Any?) { setSelection(anchor: buffer.contentStart, head: buffer.count); needsDisplay = true }
+    override func selectAll(_ sender: Any?) {
+        commitComposition()
+        setSelection(anchor: buffer.contentStart, head: buffer.count)
+        needsDisplay = true
+    }
 
     @objc func copy(_ sender: Any?) {
         let selection = selectedBytes
@@ -937,27 +960,31 @@ import SwiftUI
     }
 
     @objc func cut(_ sender: Any?) {
-        guard !selectedBytes.isEmpty else { NSSound.beep(); return }
+        commitComposition()
+        guard !selectedBytes.isEmpty, buffer.isEditable else { NSSound.beep(); return }
         copy(sender)
         replace(selectedBytes, with: [], action: "Cut")
     }
 
     @objc func paste(_ sender: Any?) {
+        commitComposition()
         guard let text = pasteboard.string(forType: .string), !text.isEmpty else { NSSound.beep(); return }
-        replace(selectedBytes, with: buffer.pieces(for: Array(text.utf8)), action: "Paste")
+        // In the file's own line breaks, so the line index (which counts one kind) stays right.
+        replace(selectedBytes, with: buffer.pieces(for: Array(lineBreakText(text).utf8)), action: "Paste")
     }
 
-    @objc func delete(_ sender: Any?) { deleteBytes(selectedBytes) }
+    @objc func delete(_ sender: Any?) { commitComposition(); deleteBytes(selectedBytes) }
 
     /// Edit ▸ Undo and Redo. The window's own undo: would use the window's undo manager, not this
     /// tab's, so the view answers them itself (it's first in the responder chain).
-    @objc func undo(_ sender: Any?) { if history.canUndo { history.undo() } else { NSSound.beep() } }
-    @objc func redo(_ sender: Any?) { if history.canRedo { history.redo() } else { NSSound.beep() } }
+    @objc func undo(_ sender: Any?) { commitComposition(); if history.canUndo { history.undo() } else { NSSound.beep() } }
+    @objc func redo(_ sender: Any?) { commitComposition(); if history.canRedo { history.redo() } else { NSSound.beep() } }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
-        case #selector(copy(_:)), #selector(cut(_:)), #selector(delete(_:)): return !selectedBytes.isEmpty
-        case #selector(paste(_:)): return pasteboard.string(forType: .string) != nil
+        case #selector(copy(_:)): return !selectedBytes.isEmpty
+        case #selector(cut(_:)), #selector(delete(_:)): return !selectedBytes.isEmpty && buffer.isEditable
+        case #selector(paste(_:)): return buffer.isEditable && pasteboard.string(forType: .string) != nil
         case #selector(undo(_:)):
             menuItem.title = history.undoMenuItemTitle
             return history.canUndo

@@ -89,6 +89,49 @@ import AppKit
         pump(0.01)
         undo.undo()
         precondition(buffer.text(in: buffer.lineRange(5)).hasPrefix("Tidepad 2026"), "Undo composition")
+        // A composition interrupted by Paste (or a click, Undo, a search match) is accepted as it is first.
+        view.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        view.pasteboard.clearContents()
+        view.pasteboard.setString("P", forType: .string)
+        view.paste(nil)
+        precondition(!view.hasMarkedText() && buffer.text(in: buffer.lineRange(5)).hasPrefix("Tidepad かP2026"), "Paste commits the composition first")
+        pump(0.01)
+        undo.undo()
+        pump(0.01)
+        if !buffer.text(in: buffer.lineRange(5)).hasPrefix("Tidepad 2026") { undo.undo() }
+        precondition(buffer.text(in: buffer.lineRange(5)).hasPrefix("Tidepad 2026"), "Undo the paste and the composition")
+        // A file that isn't UTF-8 (here Latin-1) is read-only: typing, pasting and replacing leave it alone.
+        func smallView(_ name: String, _ bytes: [UInt8]) throws -> (LargeTextView, EditorDocument, NSWindow) {
+            let url = output.appendingPathComponent(name)
+            try Data(bytes).write(to: url)
+            let document = OpenedFile.large(try LargeTextFile(url: url)).makeDocument()
+            let small = LargeTextView(document: document, buffer: document.largeBuffer!, options: EditorDisplayOptions())
+            let holder = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+            holder.contentView = small.scrollView
+            holder.makeFirstResponder(small)
+            small.pasteboard = view.pasteboard
+            return (small, document, holder)
+        }
+        let latinBytes: [UInt8] = [0x63, 0x61, 0x66, 0xE9, 0x0A, 0x78] // "café", "x" in Latin-1
+        let (latin, latinDocument, latinWindow) = try smallView("latin1-large.txt", latinBytes)
+        latin.insertText("y", replacementRange: NSRange(location: NSNotFound, length: 0))
+        latin.paste(nil)
+        latin.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        let latinReplaced = latin.replace(matches: [(range: 0..<1, bytes: [0x41])], in: 0..<1, select: 0..<0, action: "Replace")
+        precondition(!latin.isEditable && !latinReplaced && latinDocument.largeBuffer?.bytes(in: 0..<6) == latinBytes
+                     && !latinDocument.hasUnsavedChanges && !latin.hasMarkedText(), "A file that isn't UTF-8 is read-only")
+        precondition(latinDocument.largeBuffer?.text(in: 0..<6) == "caf\u{FFFD}\nx", "Its other bytes are shown as U+FFFD")
+        latinWindow.contentView = nil
+        // Pasted text takes the file's line breaks, so a CR file's line index stays right.
+        let (crView, crDocument, crWindow) = try smallView("cr-large.txt", Array("one\rtwo".utf8))
+        view.pasteboard.clearContents()
+        view.pasteboard.setString("a\nb\r\nc\r", forType: .string)
+        crView.select(3..<3)
+        crView.paste(nil)
+        guard let crBuffer = crDocument.largeBuffer else { fatalError("No buffer") }
+        precondition(crBuffer.bytes(in: 0..<crBuffer.count) == Array("onea\rb\rc\r\rtwo".utf8) && crBuffer.lineCount == 5,
+                     "Pasted line breaks become the file's: \(crBuffer.text(in: 0..<crBuffer.count).debugDescription)")
+        crWindow.contentView = nil
         // Replace All with a regular expression: one undoable edit over pieces of the file.
         let size2 = buffer.count
         let replaceStarted = Date()

@@ -176,6 +176,7 @@ actor CompiledSearchCache {
     /// go in as one undoable edit (LargeTextView.replace(matches:)), pieces over the file, so nothing
     /// is rewritten. At most 100,000, as in the normal editor.
     private func replaceLarge(_ view: LargeTextView, all: Bool, inSelection: Bool, findNext: Bool) {
+        guard view.isEditable else { message = "This file isn't UTF-8, so TidePad shows it read-only."; return }
         let search: LargeTextSearch
         do { search = try LargeTextSearch(query) } catch { message = error.localizedDescription; return }
         let buffer = view.buffer, snapshot = buffer.snapshot(), selection = view.selectedBytes, template = replacement
@@ -213,7 +214,9 @@ actor CompiledSearchCache {
                     let end = first.range.lowerBound + first.bytes.count
                     after = end..<end
                 }
-                view.replace(matches: edits, in: first.range.lowerBound..<last.range.upperBound, select: after, action: all ? "Replace All" : "Replace")
+                guard view.replace(matches: edits, in: first.range.lowerBound..<last.range.upperBound, select: after, action: all ? "Replace All" : "Replace") else {
+                    self.message = "Nothing was replaced."; return
+                }
                 self.message = edits.count == 1 ? "Replaced 1 match." : "Replaced \(edits.count.formatted()) matches."
                 self.lastLargeMatch = nil
                 if findNext { self.navigateLarge(view, backwards: false) }

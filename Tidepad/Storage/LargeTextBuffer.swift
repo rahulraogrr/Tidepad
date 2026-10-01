@@ -65,10 +65,13 @@ final class LargeTextBuffer: @unchecked Sendable {
 
     /// After saving: the saved file holds exactly this text, so the buffer starts over from it (one
     /// piece). Pieces kept by undo still point into the old file and added blocks, which stay alive.
-    func rebase(on newFile: LargeTextFile) {
-        precondition(newFile.count == count, "A re-based file must hold the same text")
+    /// Only if the file holds the same number of bytes and is indexed by the same line break (open it
+    /// with `lineBreak: buffer.lineBreak`); otherwise the buffer keeps its pieces and returns false.
+    @discardableResult func rebase(on newFile: LargeTextFile) -> Bool {
+        guard newFile.count == count, newFile.lineBreakByte == breakByte, newFile.contentStart == contentStart else { return false }
         longestLine = max(longestLine, newFile.longestLine)
         reset(to: newFile)
+        return true
     }
 
     var count: Int { ends.last ?? 0 }
@@ -76,6 +79,8 @@ final class LargeTextBuffer: @unchecked Sendable {
     var lineBreak: LargeTextFile.LineBreak { file.lineBreak }
     var lineCount: Int { (breakEnds.last ?? 0) + 1 }
     var hasByteOrderMark: Bool { file.hasByteOrderMark }
+    /// False for a file that isn't UTF-8: it's shown read-only (see LargeTextFile.isValidUTF8).
+    var isEditable: Bool { file.isValidUTF8 }
 
     private func rebuildSums(from index: Int) {
         let from = max(0, min(index, pieces.count))
@@ -284,17 +289,27 @@ final class LargeTextBuffer: @unchecked Sendable {
         return result
     }
 
+    /// The text of a range, as drawn: each byte that isn't valid UTF-8 is one U+FFFD (UTF8Bytes), so
+    /// UTF-16 offsets in it map back to bytes exactly (`utf16Count`, `offset(ofUTF16:in:)`).
     func text(in range: Range<Int>) -> String {
         let lower = max(contentStart, range.lowerBound), upper = min(count, range.upperBound)
         guard lower < upper else { return "" }
-        var text = ""
-        var pending: [UInt8] = []
-        forEachSegment(in: lower..<upper) { _, bytes, count in
-            pending.append(contentsOf: UnsafeBufferPointer(start: bytes, count: count))
-            return true
-        }
-        text = String(decoding: pending, as: UTF8.self)
-        return text
+        return UTF8Bytes.decode(bytes(in: lower..<upper))
+    }
+
+    /// The UTF-16 length of `text(in: range)`.
+    func utf16Count(in range: Range<Int>) -> Int {
+        let lower = max(contentStart, range.lowerBound), upper = min(count, range.upperBound)
+        guard lower < upper else { return 0 }
+        return bytes(in: lower..<upper).withUnsafeBufferPointer { UTF8Bytes.units($0) }
+    }
+
+    /// The byte offset of UTF-16 offset `units` in `text(in: range)`, clamped to the range and never
+    /// inside a character.
+    func offset(ofUTF16 units: Int, in range: Range<Int>) -> Int {
+        let lower = max(contentStart, range.lowerBound), upper = min(count, range.upperBound)
+        guard lower < upper, units > 0 else { return min(lower, count) }
+        return lower + bytes(in: lower..<upper).withUnsafeBufferPointer { UTF8Bytes.bytes(ofUnits: units, in: $0) }
     }
 
     // MARK: Lines
@@ -398,22 +413,27 @@ final class LargeTextBuffer: @unchecked Sendable {
         return total
     }
 
+    /// The length in bytes of the character at `offset` (UTF8Bytes: an invalid byte is one).
+    private func sequenceLength(at offset: Int) -> Int {
+        let around = bytes(in: offset..<min(count, offset + 4))
+        return around.withUnsafeBufferPointer { UTF8Bytes.sequence($0, at: 0).bytes }
+    }
+
     /// The start of the character after the one at `offset` (a CRLF counts as one).
     func characterEnd(after offset: Int) -> Int {
         guard offset < count else { return count }
         if byte(at: offset) == 0x0D && offset + 1 < count && byte(at: offset + 1) == 0x0A { return offset + 2 }
-        var next = offset + 1
-        while next < count && byte(at: next) & 0xC0 == 0x80 { next += 1 }
-        return next
+        return min(count, offset + sequenceLength(at: offset))
     }
 
     /// The start of the character before `offset` (a CRLF counts as one).
     func characterStart(before offset: Int) -> Int {
         guard offset > contentStart else { return contentStart }
         if offset >= 2 && byte(at: offset - 1) == 0x0A && byte(at: offset - 2) == 0x0D && offset - 2 >= contentStart { return offset - 2 }
-        var previous = offset - 1
-        while previous > contentStart && byte(at: previous) & 0xC0 == 0x80 { previous -= 1 }
-        return previous
+        // Back over up to three continuation bytes, to a sequence that ends exactly here.
+        var start = offset - 1
+        while start > contentStart && offset - start < 4 && byte(at: start) & 0xC0 == 0x80 { start -= 1 }
+        return start + sequenceLength(at: start) == offset ? start : offset - 1
     }
 
     func isWordByte(at offset: Int) -> Bool {
@@ -630,14 +650,27 @@ enum ByteSearch {
             guard from <= limit, let hit = memchr(base + from, Int32(byte), limit + 1 - from) else { return .max }
             return UnsafeRawPointer(hit) - UnsafeRawPointer(base)
         }
+        // Ignoring case, the anchor's two cases are looked for together in windows that double in size,
+        // so finding the next one costs about the distance to it, even when one case never occurs. (Looking
+        // for each case to the end would cost the rest of the file on every call: Count and Replace All
+        // call this once per match.)
+        func nextEither(from start: Int, through limit: Int) -> Int {
+            var from = start, window = 4_096
+            while from <= limit {
+                let end = min(limit, from + window - 1)
+                // The other case only up to this case's hit: then each candidate costs the distance to it.
+                let first = next(byte, from: from, through: end)
+                let hit = min(first, next(other, from: from, through: min(end, first)))
+                if hit != .max { return hit }
+                from = end + 1
+                window = min(window * 2, 16 * 1_048_576)
+            }
+            return .max
+        }
         return wanted.withUnsafeBytes { needle -> Range<Int>? in
-            // The other case is only looked for up to the next hit in this case, so a letter that never
-            // appears in upper case doesn't cost a scan to the end for every match (Replace All).
-            var position = anchor, nextHit = -1, checked = 0
+            var position = anchor, checked = 0
             while position <= lastHit {
-                if nextHit < position { nextHit = next(byte, from: position, through: lastHit) }
-                let otherHit = other == byte ? Int.max : next(other, from: position, through: min(lastHit, nextHit))
-                let hit = min(nextHit, otherHit)
+                let hit = other == byte ? next(byte, from: position, through: lastHit) : nextEither(from: position, through: lastHit)
                 guard hit <= lastHit else { return nil }
                 let start = hit - anchor
                 if matchCase {

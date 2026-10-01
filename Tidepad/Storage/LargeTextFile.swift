@@ -48,6 +48,10 @@ final class LargeTextFile: @unchecked Sendable {
     /// The file's stamp, taken before it was cloned: the version these bytes are, as far as can be
     /// told (a change made while opening then still shows as a change).
     let identity: FileStamp?
+    /// Whether the text is valid UTF-8 (after a UTF-8 BOM). Tidepad edits large files only in UTF-8,
+    /// so a file in another encoding (Latin-1, Shift-JIS) or with stray bytes is opened read-only:
+    /// typing UTF-8 into it would mix encodings.
+    let isValidUTF8: Bool
     /// The clone that's mapped, while this is open (nil when the file was read into memory).
     var clonePath: String? { cloneFolder.map { $0.appendingPathComponent(cloneName).path } }
 
@@ -60,7 +64,9 @@ final class LargeTextFile: @unchecked Sendable {
 
     /// Maps (or reads) the file and indexes its lines. `contents`: where to read the bytes from instead
     /// of `url` (a copy kept with the session, for edits made against an earlier version of the file).
-    init(url: URL, contentsOf contents: URL? = nil) throws {
+    /// `lineBreak`: the kind of line break to index by, instead of the one found in the file (after a
+    /// save, the buffer's own, so the two always agree).
+    init(url: URL, contentsOf contents: URL? = nil, lineBreak wantedBreak: LineBreak? = nil) throws {
         // Links are followed: the clone and the stamp are of the file they point to.
         let original = (contents ?? url).resolvingSymlinksInPath()
         identity = FileStamp(original)
@@ -102,10 +108,27 @@ final class LargeTextFile: @unchecked Sendable {
                 isMapped = true
             }
         } else {
-            let data = try Data(contentsOf: original)
-            size = data.count
-            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: max(1, size))
-            _ = data.copyBytes(to: UnsafeMutableBufferPointer(start: buffer, count: size))
+            // Read straight into one buffer (never the file twice in memory), up to the size it had
+            // when opened, or less if it shrank meanwhile.
+            let descriptor = open(source, O_RDONLY)
+            guard descriptor >= 0 else { throw CocoaError(.fileReadNoPermission, userInfo: [NSURLErrorKey: url]) }
+            defer { close(descriptor) }
+            var info = stat()
+            guard fstat(descriptor, &info) == 0 else { throw CocoaError(.fileReadUnknown, userInfo: [NSURLErrorKey: url]) }
+            let capacity = Int(info.st_size)
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: max(1, capacity))
+            var filled = 0
+            while filled < capacity {
+                let got = read(descriptor, buffer + filled, capacity - filled)
+                if got > 0 { filled += got; continue }
+                if got < 0 && errno == EINTR { continue }
+                if got < 0 {
+                    buffer.deallocate()
+                    throw CocoaError(.fileReadUnknown, userInfo: [NSURLErrorKey: url])
+                }
+                break // The end, earlier than expected.
+            }
+            size = filled
             bytes = UnsafePointer(buffer)
             isMapped = false
         }
@@ -123,7 +146,10 @@ final class LargeTextFile: @unchecked Sendable {
         // The line break: LF (and CRLF when the first LF follows a CR), or CR in files without LF.
         let content = UnsafeRawPointer(bytes + first), length = size - first
         let kind: LineBreak, separator: UInt8
-        if let firstLF = memchr(content, 0x0A, length) {
+        if let wantedBreak {
+            kind = wantedBreak
+            separator = wantedBreak == .cr ? 0x0D : 0x0A
+        } else if let firstLF = memchr(content, 0x0A, length) {
             let offset = UnsafeRawPointer(firstLF) - UnsafeRawPointer(bytes)
             kind = offset > first && bytes[offset - 1] == 0x0D ? .crlf : .lf
             separator = 0x0A
@@ -134,6 +160,8 @@ final class LargeTextFile: @unchecked Sendable {
             kind = .lf
             separator = 0x0A
         }
+
+        let valid = UTF8Bytes.isValid(bytes + first, count: length)
 
         // One scan: count lines, record every 64th start, and the longest line.
         var samples = [first]
@@ -157,6 +185,7 @@ final class LargeTextFile: @unchecked Sendable {
         mapped = isMapped
         cloneFolder = folder
         cloneName = name
+        isValidUTF8 = valid
         isCloned = folder != nil
         hasByteOrderMark = bom
         contentStart = first
@@ -298,12 +327,125 @@ protocol LargeTextSource: AnyObject, Sendable {
 }
 
 extension LargeTextFile: LargeTextSource {
-    /// Through the sparse index: the line numbers of the two ends.
+    /// Through the sparse index: the line numbers of the two ends (or by counting, for another byte).
     func breaks(in range: Range<Int>, byte: UInt8) -> Int {
         guard !range.isEmpty else { return 0 }
+        guard byte == breakByte else { return UTF8Bytes.count(byte, in: base + range.lowerBound, count: range.count) }
         return line(containing: range.upperBound) - line(containing: range.lowerBound)
     }
     func breakOffset(_ number: Int, from start: Int, byte: UInt8) -> Int {
-        lineStart(line(containing: start) + number) - 1
+        guard byte == breakByte else {
+            var offset = start - 1
+            for _ in 0..<number {
+                guard offset + 1 < count, let hit = memchr(base + offset + 1, Int32(byte), count - offset - 1) else { return count }
+                offset = UnsafeRawPointer(hit) - UnsafeRawPointer(base)
+            }
+            return offset
+        }
+        return lineStart(line(containing: start) + number) - 1
+    }
+}
+
+/// UTF-8 as the large-file view reads it. Valid sequences are characters; each byte that doesn't
+/// start one is a character of its own, shown as U+FFFD. Decoding, counting UTF-16 units and mapping
+/// them back to bytes all follow this one rule, so offsets never drift on invalid bytes.
+enum UTF8Bytes {
+    /// The UTF-8 sequence at `index`: its length in bytes, and in UTF-16 units.
+    static func sequence(_ b: UnsafeBufferPointer<UInt8>, at index: Int) -> (bytes: Int, units: Int) {
+        let lead = b[index]
+        if lead < 0x80 { return (1, 1) }
+        func follows(_ k: Int, _ low: UInt8 = 0x80, _ high: UInt8 = 0xBF) -> Bool {
+            index + k < b.count && b[index + k] >= low && b[index + k] <= high
+        }
+        switch lead {
+        case 0xC2...0xDF: return follows(1) ? (2, 1) : (1, 1)
+        case 0xE0: return follows(1, 0xA0) && follows(2) ? (3, 1) : (1, 1)
+        case 0xE1...0xEC, 0xEE, 0xEF: return follows(1) && follows(2) ? (3, 1) : (1, 1)
+        case 0xED: return follows(1, 0x80, 0x9F) && follows(2) ? (3, 1) : (1, 1)
+        case 0xF0: return follows(1, 0x90) && follows(2) && follows(3) ? (4, 2) : (1, 1)
+        case 0xF1...0xF3: return follows(1) && follows(2) && follows(3) ? (4, 2) : (1, 1)
+        case 0xF4: return follows(1, 0x80, 0x8F) && follows(2) && follows(3) ? (4, 2) : (1, 1)
+        default: return (1, 1)
+        }
+    }
+
+    /// Whether the bytes are valid UTF-8. Runs of ASCII are checked eight bytes at a time.
+    static func isValid(_ base: UnsafePointer<UInt8>, count: Int) -> Bool {
+        let b = UnsafeBufferPointer(start: base, count: count)
+        let raw = UnsafeRawPointer(base)
+        var k = 0
+        while k < count {
+            while k + 8 <= count && raw.loadUnaligned(fromByteOffset: k, as: UInt64.self) & 0x8080_8080_8080_8080 == 0 { k += 8 }
+            guard k < count else { break }
+            if b[k] < 0x80 { k += 1; continue }
+            let step = sequence(b, at: k)
+            if step.bytes == 1 { return false }
+            k += step.bytes
+        }
+        return true
+    }
+
+    /// UTF-16 units of the bytes.
+    static func units(_ b: UnsafeBufferPointer<UInt8>) -> Int {
+        var k = 0, units = 0
+        while k < b.count {
+            let step = sequence(b, at: k)
+            units += step.units
+            k += step.bytes
+        }
+        return units
+    }
+
+    /// How many bytes from the start make up `target` UTF-16 units (never splitting a character: a
+    /// target inside a surrogate pair stops before it).
+    static func bytes(ofUnits target: Int, in b: UnsafeBufferPointer<UInt8>) -> Int {
+        var k = 0, units = 0
+        while k < b.count && units < target {
+            let step = sequence(b, at: k)
+            if units + step.units > target { break }
+            units += step.units
+            k += step.bytes
+        }
+        return k
+    }
+
+    /// The text, with valid UTF-8 decoded by the standard library and anything else by the rule above.
+    static func decode(_ bytes: [UInt8]) -> String {
+        let valid = bytes.withUnsafeBufferPointer { $0.isEmpty || isValid($0.baseAddress!, count: $0.count) }
+        if valid { return String(decoding: bytes, as: UTF8.self) }
+        var units: [UInt16] = []
+        units.reserveCapacity(bytes.count)
+        bytes.withUnsafeBufferPointer { b in
+            var k = 0
+            while k < b.count {
+                let step = sequence(b, at: k)
+                var scalar: UInt32
+                switch step.bytes {
+                case 1: scalar = b[k] < 0x80 ? UInt32(b[k]) : 0xFFFD
+                case 2: scalar = UInt32(b[k] & 0x1F) << 6 | UInt32(b[k + 1] & 0x3F)
+                case 3: scalar = UInt32(b[k] & 0x0F) << 12 | UInt32(b[k + 1] & 0x3F) << 6 | UInt32(b[k + 2] & 0x3F)
+                default: scalar = UInt32(b[k] & 0x07) << 18 | UInt32(b[k + 1] & 0x3F) << 12 | UInt32(b[k + 2] & 0x3F) << 6 | UInt32(b[k + 3] & 0x3F)
+                }
+                if scalar >= 0x10000 {
+                    scalar -= 0x10000
+                    units.append(UInt16(0xD800 + (scalar >> 10)))
+                    units.append(UInt16(0xDC00 + (scalar & 0x3FF)))
+                } else {
+                    units.append(UInt16(scalar))
+                }
+                k += step.bytes
+            }
+        }
+        return String(decoding: units, as: UTF16.self)
+    }
+
+    /// How many times `byte` occurs.
+    static func count(_ byte: UInt8, in base: UnsafePointer<UInt8>, count: Int) -> Int {
+        var total = 0, cursor = 0
+        while cursor < count, let hit = memchr(base + cursor, Int32(byte), count - cursor) {
+            total += 1
+            cursor = UnsafeRawPointer(hit) - UnsafeRawPointer(base) + 1
+        }
+        return total
     }
 }

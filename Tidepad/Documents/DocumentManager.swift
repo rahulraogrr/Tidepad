@@ -177,7 +177,8 @@ import Observation
         }
         // A large file's edits now live in the saved file: start again from a clone of it, so pieces
         // (and memory) don't keep growing. Undo still works: its pieces keep the old sources alive.
-        if let buffer = document.largeBuffer, let saved = try? LargeTextFile(url: destination), saved.count == buffer.count {
+        // (Indexed by the buffer's own kind of line break, so the two always agree.)
+        if let buffer = document.largeBuffer, let saved = try? LargeTextFile(url: destination, lineBreak: buffer.lineBreak) {
             buffer.rebase(on: saved)
         }
         document.markSaved(at: destination)

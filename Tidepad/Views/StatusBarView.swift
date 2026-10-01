@@ -6,7 +6,7 @@ struct StatusBarView: View {
     var body: some View {
         let _ = EditorDiagnostics.view("StatusBarView")
         HStack(spacing: 0) {
-            Text(document.map { $0.isLarge ? "\($0.languageName) · large file" : $0.languageName } ?? "No document")
+            Text(document.map(Self.kind) ?? "No document")
                 .lineLimit(1).padding(.horizontal, TidepadMetrics.statusHorizontalPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
             section("length: \(document?.utf16Length ?? 0)  lines: \(document?.lineCount ?? 0)")
@@ -24,6 +24,12 @@ struct StatusBarView: View {
         .frame(height: TidepadMetrics.statusBarHeight)
         .background(Color(nsColor: TidepadTheme.statusBackground))
         .overlay(alignment: .top) { ChromeSeparator() }
+    }
+
+    /// The language, and for a large file, that it's one (and read-only when it isn't UTF-8).
+    private static func kind(of document: EditorDocument) -> String {
+        guard let buffer = document.largeBuffer else { return document.languageName }
+        return buffer.isEditable ? "\(document.languageName) · large file" : "\(document.languageName) · large file · read-only: not UTF-8"
     }
 
     private func section(_ text: String) -> some View {

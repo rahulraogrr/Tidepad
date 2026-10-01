@@ -302,51 +302,12 @@ final class LargeTextChunk {
         return unit
     }
 
-    /// The UTF-8 sequence at `index`: its length in bytes, and in UTF-16 units. A byte that doesn't
-    /// start a valid sequence is one byte and one unit (U+FFFD).
+    /// The UTF-8 sequence at `index` (UTF8Bytes: a byte that doesn't start a valid sequence is one byte
+    /// and one unit, U+FFFD).
     static func sequence(_ b: UnsafeBufferPointer<UInt8>, at index: Int) -> (bytes: Int, units: Int) {
-        let lead = b[index]
-        if lead < 0x80 { return (1, 1) }
-        func follows(_ k: Int, _ low: UInt8 = 0x80, _ high: UInt8 = 0xBF) -> Bool {
-            index + k < b.count && b[index + k] >= low && b[index + k] <= high
-        }
-        switch lead {
-        case 0xC2...0xDF: return follows(1) ? (2, 1) : (1, 1)
-        case 0xE0: return follows(1, 0xA0) && follows(2) ? (3, 1) : (1, 1)
-        case 0xE1...0xEC, 0xEE, 0xEF: return follows(1) && follows(2) ? (3, 1) : (1, 1)
-        case 0xED: return follows(1, 0x80, 0x9F) && follows(2) ? (3, 1) : (1, 1)
-        case 0xF0: return follows(1, 0x90) && follows(2) && follows(3) ? (4, 2) : (1, 1)
-        case 0xF1...0xF3: return follows(1) && follows(2) && follows(3) ? (4, 2) : (1, 1)
-        case 0xF4: return follows(1, 0x80, 0x8F) && follows(2) && follows(3) ? (4, 2) : (1, 1)
-        default: return (1, 1)
-        }
+        UTF8Bytes.sequence(b, at: index)
     }
 
     /// UTF-8 to UTF-16 with each invalid byte as U+FFFD, matching `sequence`.
-    private static func decode(_ bytes: [UInt8]) -> NSString {
-        var units: [UInt16] = []
-        units.reserveCapacity(bytes.count)
-        bytes.withUnsafeBufferPointer { b in
-            var k = 0
-            while k < b.count {
-                let step = sequence(b, at: k)
-                var scalar: UInt32
-                switch step.bytes {
-                case 1: scalar = b[k] < 0x80 ? UInt32(b[k]) : 0xFFFD
-                case 2: scalar = UInt32(b[k] & 0x1F) << 6 | UInt32(b[k + 1] & 0x3F)
-                case 3: scalar = UInt32(b[k] & 0x0F) << 12 | UInt32(b[k + 1] & 0x3F) << 6 | UInt32(b[k + 2] & 0x3F)
-                default: scalar = UInt32(b[k] & 0x07) << 18 | UInt32(b[k + 1] & 0x3F) << 12 | UInt32(b[k + 2] & 0x3F) << 6 | UInt32(b[k + 3] & 0x3F)
-                }
-                if scalar >= 0x10000 {
-                    scalar -= 0x10000
-                    units.append(UInt16(0xD800 + (scalar >> 10)))
-                    units.append(UInt16(0xDC00 + (scalar & 0x3FF)))
-                } else {
-                    units.append(UInt16(scalar))
-                }
-                k += step.bytes
-            }
-        }
-        return NSString(characters: units, length: units.count)
-    }
+    private static func decode(_ bytes: [UInt8]) -> NSString { UTF8Bytes.decode(bytes) as NSString }
 }

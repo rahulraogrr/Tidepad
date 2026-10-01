@@ -41,6 +41,10 @@ identifier, the Help book folder and saved-data names keep `Tidepad`, so setting
   nothing in the usual case and replays edits over the right bytes when the file changed (another
   app, or "Keep TidePad's Version"). On volumes without clones nothing is kept, and changed files
   open as they are, with a message.
+- Large files that aren't UTF-8 (Latin-1, Shift-JIS, stray bytes) open read-only, checked at open
+  (`UTF8Bytes.isValid`, eight ASCII bytes at a time). Typing UTF-8 into them would mix encodings, and
+  converting a 500 MB file on open would cost its size in memory. The view shows each invalid byte
+  as one U+FFFD, and drawing, UTF-16 counting and mapping back to bytes all use that one rule.
 - Editor engine (2026-09-27): hybrid. Files open in `NSTextView` (Apple's full text system) unless
   they're too large or have too-long lines, in which case they open in a large-file view built on Core
   Text over the piece-table storage (`Tidepad/Storage`). The mode is chosen once when the file opens

@@ -83,6 +83,64 @@ import Foundation
     try Data("kept\nbytes\n".utf8).write(to: copy)
     let fromCopy = try LargeTextFile(url: opened, contentsOf: copy)
     precondition(fromCopy.url == opened && fromCopy.count == 11 && fromCopy.lineCount == 3, "Bytes from a kept copy")
+
+    // Bytes that aren't UTF-8 (a stray byte, a cut-off sequence): each is one U+FFFD, drawn, counted
+    // and mapped back the same way, so the caret and edits land on the right bytes.
+    let mixedBytes: [UInt8] = Array("a".utf8) + [0xE2, 0x82] + Array("b".utf8) + [0xFF] + Array("c€😀d\r\ne".utf8)
+    let mixedURL = dir.appendingPathComponent("mixed.txt")
+    try Data(mixedBytes).write(to: mixedURL)
+    let mixed = LargeTextBuffer(file: try LargeTextFile(url: mixedURL))
+    precondition(!mixed.file.isValidUTF8 && !mixed.isEditable && b.isEditable, "A file that isn't UTF-8 is read-only")
+    let shown = mixed.text(in: 0..<mixed.count)
+    precondition(shown == "a\u{FFFD}\u{FFFD}b\u{FFFD}c€😀d\r\ne", "Invalid bytes as U+FFFD: \(shown.debugDescription)")
+    precondition(mixed.utf16Count(in: 0..<mixed.count) == shown.utf16.count, "UTF-16 length as drawn")
+    var unitOffset = 0, byteOffset = 0
+    for scalar in shown.unicodeScalars {
+        precondition(mixed.offset(ofUTF16: unitOffset, in: 0..<mixed.count) == byteOffset && mixed.utf16Count(in: 0..<byteOffset) == unitOffset,
+                     "UTF-16 \(unitOffset) is byte \(byteOffset)")
+        unitOffset += scalar.utf16.count
+        byteOffset += scalar == "\u{FFFD}" ? 1 : scalar.utf8.count
+    }
+    let emoji = mixedBytes.count - 8 // 😀 starts 8 bytes from the end: 😀 d \r \n e.
+    precondition(mixed.offset(ofUTF16: mixed.utf16Count(in: 0..<emoji) + 1, in: 0..<mixed.count) == emoji, "Never inside a surrogate pair")
+    precondition(mixed.characterEnd(after: 1) == 2 && mixed.characterEnd(after: 2) == 3 && mixed.characterStart(before: 3) == 2
+                 && mixed.characterStart(before: 2) == 1 && mixed.characterEnd(after: emoji) == emoji + 4 && mixed.characterStart(before: emoji + 4) == emoji
+                 && mixed.characterEnd(after: emoji + 5) == emoji + 7 && mixed.characterStart(before: emoji + 7) == emoji + 5, "Characters step by the same rule")
+    let validity: [([UInt8], Bool)] = [([0x41], true), ([0xC3, 0xA9], true), ([0xC0, 0x80], false), ([0xED, 0xA0, 0x80], false),
+                                       ([0xF4, 0x90, 0x80, 0x80], false), ([0xF0, 0x9F, 0x98, 0x80], true), ([0xE2, 0x82], false),
+                                       (Array(repeating: 0x61, count: 37) + [0x80], false), (Array(repeating: 0x61, count: 37), true)]
+    for (bytes, valid) in validity {
+        precondition(bytes.withUnsafeBufferPointer { UTF8Bytes.isValid($0.baseAddress!, count: $0.count) } == valid, "Validity of \(bytes)")
+    }
+
+    // Line breaks of another kind (a pasted LF in a CR file) don't confuse the line index after a save.
+    let crURL = dir.appendingPathComponent("cr.txt")
+    try Data("one\rtwo\rthree".utf8).write(to: crURL)
+    let cr = LargeTextBuffer(file: try LargeTextFile(url: crURL))
+    precondition(cr.lineBreak == .cr && cr.lineCount == 3)
+    cr.replace(3..<3, with: cr.pieces(for: Array(" a\nb".utf8)))
+    let crSaved = dir.appendingPathComponent("cr-saved.txt")
+    try cr.write(to: crSaved)
+    let detected = try LargeTextFile(url: crSaved)
+    precondition(detected.lineBreak == .lf && !cr.rebase(on: detected), "Not re-based on a file indexed by another line break")
+    let crFile = try LargeTextFile(url: crSaved, lineBreak: cr.lineBreak)
+    precondition(crFile.lineCount == 3 && crFile.breaks(in: 0..<crFile.count, byte: 0x0A) == 1 && crFile.breakOffset(1, from: 0, byte: 0x0A) == 5,
+                 "Indexed by the buffer's line break, and other bytes counted when asked")
+    precondition(cr.rebase(on: crFile) && cr.lineCount == 3 && cr.text(in: cr.lineRange(0)) == "one a\nb" && cr.text(in: cr.lineRange(2)) == "three",
+                 "Re-based with the same line break")
+
+    // Ignoring case, a letter that never appears in one case doesn't make each search scan to the end
+    // (Count and Replace All search once per match).
+    var sparse = [UInt8](repeating: 0x2E, count: 60_000_000)
+    for k in Swift.stride(from: 5_000, to: sparse.count - 10, by: 12_000) { sparse.replaceSubrange(k..<(k + 2), with: Array("ZQ".utf8)) }
+    let caseClock = Date()
+    var found = 0, from = 0
+    while let match = sparse.withUnsafeBufferPointer({ ByteSearch.first(Array("zq".utf8), in: $0.baseAddress! + from, count: $0.count - from, matchCase: false) }) {
+        found += 1
+        from += match.upperBound
+    }
+    let caseSeconds = Date().timeIntervalSince(caseClock)
+    precondition(found == 5_000 && caseSeconds < 0.5, "5,000 matches of one case only in \(caseSeconds) s")
     for k in [0, 1, 63, 64, 65, 500, 999] {
         precondition(b.text(in: b.lineRange(k)) == lines[k])
         let r = b.lineRange(k); precondition(b.line(containing: r.lowerBound) == k && b.line(containing: r.upperBound) == k)
