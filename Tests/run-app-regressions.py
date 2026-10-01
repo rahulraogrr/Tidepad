@@ -1,6 +1,7 @@
 """Run native Debug menu/search integration checks in separate, owned app processes."""
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 import sys
@@ -9,9 +10,11 @@ root = Path(__file__).resolve().parent.parent
 binary = root / "build/DerivedData/Build/Products/Debug/TidePad.app/Contents/MacOS/TidePad"
 for kind in (sys.argv[1:] or ("menu", "search")):
     output = root / "build" / f"performance-{kind}-validation"
-    output.mkdir(exist_ok=True)
+    # Start empty: files left by a previous run (the search check's sample.txt) would be noticed as
+    # changed on disk and reloaded over the check's own text.
+    shutil.rmtree(output, ignore_errors=True)
+    output.mkdir(parents=True)
     report = output / "results.txt"
-    report.unlink(missing_ok=True)
     env = dict(os.environ)
     env[f"TIDEPAD_{kind.upper()}_VALIDATE"] = str(output)
     with (output / "app.log").open("w") as log:

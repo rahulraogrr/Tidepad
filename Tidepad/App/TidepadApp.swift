@@ -23,18 +23,20 @@ import AppKit
 @MainActor final class TidepadAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let manager = DocumentManager()
     let sessions = EditorSessionStore()
-    let preferences = EditorPreferences()
-    let project = ProjectFolder()
+    let preferences = EditorPreferences(defaults: CheckEnvironment.defaults)
+    let project = ProjectFolder(defaults: CheckEnvironment.defaults)
     let terminal = TerminalPanel()
-    lazy var keeper = SessionKeeper(manager: manager, sessions: sessions, terminal: terminal)
+    lazy var keeper = SessionKeeper(manager: manager, sessions: sessions, terminal: terminal, directory: CheckEnvironment.sessionDirectory)
     lazy var commandContext = WorkspaceCommandContext(documents: manager, sessions: sessions, preferences: preferences,
                                                       project: project, terminal: terminal)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         sessions.openFiles = { [weak self] urls in self?.open(urls) }
         // Crash reports from macOS (kept on this Mac), and the weekly update check if it's on.
-        CrashReports.shared.start()
-        commandContext.updates.scheduleAutomaticCheck()
+        if !CheckEnvironment.isActive {
+            CrashReports.shared.start()
+            commandContext.updates.scheduleAutomaticCheck()
+        }
         // Find in Files searches the open folder.
         project.didOpen = { [weak self] folder in self?.commandContext.search.directory = folder.path }
         // Right-click ▸ On-Device AI in both editors.

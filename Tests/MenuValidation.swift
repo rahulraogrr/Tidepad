@@ -21,9 +21,10 @@ import AppKit
             do {
                 try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
                 try dump().write(to: output.appendingPathComponent("menus-before.txt"), atomically: true, encoding: .utf8)
-                let expected = ["Tidepad", "File", "Edit", "Search", "View", "Encoding", "Language", "Settings", "Tools", "Window", "Help"]
-                check(NSApp.mainMenu?.items.map(\.title) == expected, "Top-level menu order")
-                check(item("About Tidepad", menu: "Tidepad") != nil, "Native About retained")
+                let expected = ["TidePad", "File", "Edit", "Search", "View", "Encoding", "Language", "Settings", "Tools", "Window", "Help"]
+                check(NSApp.mainMenu?.items.map(\.title) == expected, "Top-level menu order: \(NSApp.mainMenu?.items.map(\.title) ?? [])")
+                check(item("About TidePad", menu: "TidePad") != nil && item("Check for Updates…", menu: "TidePad") != nil, "About TidePad and Check for Updates")
+                check(CheckEnvironment.isActive && CheckEnvironment.defaults !== UserDefaults.standard, "Checks use their own settings and session")
                 check(item("Minimize", menu: "Window") != nil && item("Zoom", menu: "Window") != nil && item("Bring All to Front", menu: "Window") != nil, "Native Window commands retained")
                 let count = context.documents.documents.count
                 check(key("n", window: window), "Cmd+N routed")
@@ -57,8 +58,20 @@ import AppKit
                 window.makeKeyAndOrderFront(nil)
                 check(!NSApp.isHidden, "Cmd+H does not hide application")
                 check(allItems().filter { $0.keyEquivalent == "h" && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == .command }.count == 1, "Only Replace owns Cmd+H")
-                await verifyModal(key: ",", window: window, expected: "preferences")
+                // Cmd+, opens the Settings window; Cmd+W then closes it, not a tab.
+                let tabs = context.documents.documents.count
+                check(key(",", window: window), "Cmd+, routed")
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
                 await settle()
+                let settings = NSApp.windows.first { $0.isVisible && $0 !== window && !($0 is NSPanel) }
+                check(settings != nil, "Cmd+, opens the Settings window")
+                if let settings {
+                    settings.makeKeyAndOrderFront(nil)
+                    await settle()
+                    check(key("w", window: settings), "Cmd+W routed in Settings")
+                    await settle()
+                    check(!settings.isVisible && context.documents.documents.count == tabs, "Cmd+W closes Settings, not a tab")
+                }
                 window.makeKeyAndOrderFront(nil)
                 await settle()
                 click("Swift", menu: "Language")
@@ -66,7 +79,7 @@ import AppKit
                 check(document.languageOverride == .swift && item("Swift", menu: "Language")?.state == .on, "Manual language override and checkmark")
                 click("Use File Extension", menu: "Language")
                 await settle()
-                check(document.languageOverride == nil && item("Normal Text", menu: "Language")?.state == .on, "Restore detected language/checkmark")
+                check(document.languageOverride == nil && item("None (Normal Text)", menu: "Language")?.state == .on, "Restore detected language/checkmark")
                 for (title, keyPath) in [("Show Toolbar", \EditorPreferences.showToolbar), ("Show Status Bar", \EditorPreferences.showStatusBar), ("Show Line Numbers", \EditorPreferences.showLineNumbers), ("Word Wrap", \EditorPreferences.wordWrap)] {
                     let original = context.preferences[keyPath: keyPath]
                     click(title, menu: "View")
@@ -86,7 +99,7 @@ import AppKit
                 await settle()
                 check(session.textView.font?.pointSize == 12, "Reset Zoom applied")
                 check(item("UTF-8", menu: "Encoding")?.state == .on, "Encoding checkmark")
-                check(item("Convert to UTF-8", menu: "Encoding")?.isEnabled == false, "Unimplemented conversion disabled")
+                check(item("Reopen with Encoding", menu: "Encoding") != nil && item("Unix (LF)", menu: "Encoding")?.state == .on, "Reopen with Encoding and Line Endings")
                 check(!document.hasUnsavedChanges, "Display commands do not dirty text")
                 NSApp.activate(ignoringOtherApps: true)
                 window.makeKeyAndOrderFront(nil)
@@ -122,8 +135,7 @@ import AppKit
             menu.delegate?.menuDidClose?(menu)
         }
         let actions = ["undo:", "redo:", "cut:", "copy:", "paste:", "selectAll:",
-                       "toggleFullScreen:", "performMiniaturize:", "performZoom:",
-                       "orderFrontStandardAboutPanel:", "terminate:"]
+                       "toggleFullScreen:", "performMiniaturize:", "performZoom:", "terminate:"]
         for action in actions {
             let matches = allItems().filter { $0.action.map(NSStringFromSelector) == action }
             check(matches.count == 1, "Exactly one native \(action) (found \(matches.count))")
@@ -131,6 +143,7 @@ import AppKit
         let fullScreen = allItems().filter { $0.title == "Enter Full Screen" || $0.title == "Exit Full Screen" }
         check(fullScreen.count == 1 && fullScreen.first?.action == #selector(NSWindow.toggleFullScreen(_:)),
               "Full Screen uses only the native responder-chain action")
+        check(allItems().filter { $0.title == "About TidePad" }.count == 1, "Exactly one About TidePad")
     }
 
     private static func settle() async {
@@ -140,14 +153,21 @@ import AppKit
         }
     }
     private static func check(_ condition: Bool, _ message: String) { results.append("\(condition ? "PASS" : "FAIL"): \(message)") }
+    /// An item of a top-level menu, in it or in one of its submenus (Language ▸ S ▸ Swift).
     private static func item(_ title: String, menu: String) -> NSMenuItem? {
         guard let submenu = NSApp.mainMenu?.items.first(where: { $0.title == menu })?.submenu else { return nil }
-        submenu.delegate?.menuNeedsUpdate?(submenu)
-        submenu.delegate?.menuWillOpen?(submenu)
-        submenu.update()
-        let found = submenu.items.first { $0.title == title }
-        submenu.delegate?.menuDidClose?(submenu)
-        return found
+        func find(in menu: NSMenu) -> NSMenuItem? {
+            menu.delegate?.menuNeedsUpdate?(menu)
+            menu.delegate?.menuWillOpen?(menu)
+            menu.update()
+            defer { menu.delegate?.menuDidClose?(menu) }
+            for entry in menu.items {
+                if entry.title == title { return entry }
+                if let nested = entry.submenu, let found = find(in: nested) { return found }
+            }
+            return nil
+        }
+        return find(in: submenu)
     }
     private static func click(_ title: String, menu: String) {
         guard let entry = item(title, menu: menu), let parent = entry.menu else { check(false, "Missing \(menu) > \(title)"); return }

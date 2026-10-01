@@ -230,6 +230,7 @@ import Observation
     }
 
     private func noteRecent(_ url: URL) {
+        guard !CheckEnvironment.isActive else { return } // The checks' files stay out of Open Recent.
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
         recentFiles = NSDocumentController.shared.recentDocumentURLs
     }
