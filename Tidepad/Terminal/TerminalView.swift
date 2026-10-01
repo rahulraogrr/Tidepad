@@ -337,12 +337,11 @@ import AppKit
     }
 
     /// Edit > Paste. Line breaks are sent as Return; bracketed paste marks the text as pasted so
-    /// shells and other programs don't run it line by line.
+    /// shells and other programs don't run it line by line. Control characters are removed
+    /// (TerminalScreen.pasteBytes), so pasted text can't smuggle in keystrokes.
     @objc func paste(_ sender: Any?) {
-        guard var text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
-        text = text.replacingOccurrences(of: "\r\n", with: "\r").replacingOccurrences(of: "\n", with: "\r")
-        if screen.bracketedPaste { text = "\u{1B}[200~" + text + "\u{1B}[201~" }
-        typed(Array(text.utf8))
+        guard let text = pasteboard.string(forType: .string), !text.isEmpty else { return }
+        typed(TerminalScreen.pasteBytes(text, bracketed: screen.bracketedPaste))
     }
 
     // MARK: Mouse

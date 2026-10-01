@@ -12,6 +12,8 @@ xcrun swiftc "${flags[@]}" Tidepad/Editor/TextCommands.swift Tidepad/Editor/SQLF
 build/TextCommandChecks
 xcrun swiftc -O "${flags[@]}" Tidepad/Terminal/TerminalScreen.swift Tidepad/Terminal/TerminalAccessibility.swift Tests/TerminalChecks.swift -o build/TerminalChecks
 build/TerminalChecks
+xcrun swiftc "${flags[@]}" Tidepad/Terminal/PseudoTerminal.swift Tests/PseudoTerminalChecks.swift -o build/PseudoTerminalChecks
+build/PseudoTerminalChecks
 xcrun swiftc "${flags[@]}" Tidepad/Project/FolderListing.swift Tests/FolderChecks.swift -o build/FolderChecks
 build/FolderChecks
 xcrun swiftc -O "${flags[@]}" Tidepad/Storage/MappedUTF8Text.swift Tidepad/Storage/PieceTable.swift Tidepad/Storage/PieceTableString.swift Tests/StorageChecks.swift -o build/StorageChecks

@@ -83,6 +83,24 @@ final class TerminalScreen {
     private var intermediate: UInt8 = 0
     private var stringKind: UInt8 = 0
     private var stringBytes: [UInt8] = []
+
+    // Limits on what output can make the parser hold, so hostile or binary output (a stray ESC ] in
+    // `cat` of a binary file, a flood of digits) can't use unbounded memory or time.
+    static let stringLimit = 4_096
+    static let parameterLimit = 256
+    static let parameterMaximum = 65_535
+    static let marksPerCell = 16
+    static let titleLimit = 256
+
+    /// The bytes to send for pasted text: line breaks as Return, and no control characters other
+    /// than tab and Return, so pasted text can't end a bracketed paste early (ESC [ 2 0 1 ~) and
+    /// then run as typed commands. With `bracketed`, it's wrapped in ESC [ 200 ~ … ESC [ 201 ~.
+    static func pasteBytes(_ text: String, bracketed: Bool) -> [UInt8] {
+        let text = text.replacingOccurrences(of: "\r\n", with: "\r").replacingOccurrences(of: "\n", with: "\r")
+        var bytes = Array(text.utf8).filter { $0 >= 0x20 && $0 != 0x7F || $0 == 0x09 || $0 == 0x0D }
+        if bracketed { bytes = Array("\u{1B}[200~".utf8) + bytes + Array("\u{1B}[201~".utf8) }
+        return bytes
+    }
     private var utf8: [UInt8] = []
     private var utf8Expected = 0
 
@@ -196,9 +214,12 @@ final class TerminalScreen {
             // ESC ( B and similar choose character sets; only the default one is supported.
             state = .ground
         case .csi: csi(byte)
-        case .string: stringBytes.append(byte)
+        case .string: if stringBytes.count < Self.stringLimit { stringBytes.append(byte) }
         case .stringEscape:
-            if byte == 0x5C { finishString() } else { state = .string; stringBytes.append(byte) }
+            if byte == 0x5C { finishString() } else {
+                state = .string
+                if stringBytes.count < Self.stringLimit { stringBytes.append(byte) }
+            }
         }
     }
 
@@ -231,7 +252,10 @@ final class TerminalScreen {
             // A combining mark joins the character before it.
             var column = pendingWrap ? cursorColumn : cursorColumn - 1
             if column >= 0, lines[cursorRow][column].width == 0, column > 0 { column -= 1 }
-            if column >= 0 { lines[cursorRow][column].character.unicodeScalars.append(scalar) }
+            // At most a few marks per cell: a flood of them would make one cell enormous to lay out.
+            if column >= 0, lines[cursorRow][column].character.unicodeScalars.count < Self.marksPerCell {
+                lines[cursorRow][column].character.unicodeScalars.append(scalar)
+            }
             return
         }
         if pendingWrap {
@@ -369,12 +393,12 @@ final class TerminalScreen {
         guard stringKind == 0x5D else { return } // Only OSC is used; DCS, PM and APC are ignored.
         let text = String(decoding: stringBytes, as: UTF8.self)
         let parts = text.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
-        if parts.count == 2, parts[0] == "0" || parts[0] == "2" { title = String(parts[1]) }
+        if parts.count == 2, parts[0] == "0" || parts[0] == "2" { title = String(parts[1].prefix(Self.titleLimit)) }
     }
 
     private func csi(_ byte: UInt8) {
         switch byte {
-        case 0x30...0x3B: parameters.append(byte) // digits ; :
+        case 0x30...0x3B: if parameters.count < Self.parameterLimit { parameters.append(byte) } // digits ; :
         case 0x3C...0x3F:
             if parameters.isEmpty { privateMarker = byte } // < = > ?
         case 0x20...0x2F: intermediate = byte
@@ -390,7 +414,8 @@ final class TerminalScreen {
         guard !parameters.isEmpty else { return [] }
         return parameters.split(separator: 0x3B, omittingEmptySubsequences: false).map { group in
             group.split(separator: 0x3A, omittingEmptySubsequences: false).map { digits in
-                digits.isEmpty ? nil : Int(String(decoding: digits, as: UTF8.self))
+                // Clamped, as xterm does: a huge number would overflow cursor arithmetic or loop for ever.
+                digits.isEmpty ? nil : min(Int(String(decoding: digits.prefix(9), as: UTF8.self)) ?? 0, Self.parameterMaximum)
             }
         }
     }
@@ -424,7 +449,7 @@ final class TerminalScreen {
         case 0x46: moveCursor(row: cursorRow - n, column: 0, clampToRegion: true) // F
         case 0x47, 0x60: moveCursor(row: cursorRow, column: n - 1) // G `
         case 0x48, 0x66: moveCursor(row: value(0, 1) - 1, column: value(1, 1) - 1) // H f
-        case 0x49: for _ in 0..<n { control(0x09) } // I
+        case 0x49: for _ in 0..<min(n, columns) { control(0x09) } // I
         case 0x4A: eraseDisplay(values.first.flatMap { $0 } ?? 0) // J
         case 0x4B: eraseLine(values.first.flatMap { $0 } ?? 0) // K
         case 0x4C: insertLines(n) // L
@@ -434,7 +459,7 @@ final class TerminalScreen {
         case 0x54: scrollDown(n) // T
         case 0x58: eraseCells(n) // X
         case 0x5A: // Z: back tab
-            for _ in 0..<n { cursorColumn = max(0, (cursorColumn - 1) / 8 * 8) }
+            for _ in 0..<min(n, columns) { cursorColumn = max(0, (cursorColumn - 1) / 8 * 8) }
             pendingWrap = false
         case 0x61: moveCursor(row: cursorRow, column: cursorColumn + n) // a
         case 0x62: // b: repeat the last character

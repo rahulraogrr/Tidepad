@@ -188,6 +188,35 @@ import Foundation
         let long = tracker.newOutput(in: s, afterTyping: false) ?? ""
         precondition(long.hasSuffix("end") && long.split(separator: "\n").count <= TerminalOutputTracker.maximumLines + 1, "Long output is read from its end")
 
+        // Hostile or binary output: huge numbers, endless strings and floods are bounded, not a crash.
+        let huge = String(repeating: "9", count: 40)
+        for final in ["A", "B", "C", "D", "E", "F", "G", "H", "I", "Z", "L", "M", "P", "@", "X", "S", "T", "b", "d", "e", "a", "r"] {
+            s = screen("x\(esc)[\(huge)\(final)\(esc)[\(huge);\(huge)\(final)y")
+        }
+        s = screen("\(esc)[9223372036854775807;9223372036854775807H\(esc)[9223372036854775807Cz")
+        precondition(s.cursorRow == 3 && s.cursorColumn == 9, "Huge cursor positions are clamped")
+        var clock = Date()
+        s = screen(80, 24, "\(esc)[65535I\(esc)[65535Z\(esc)[999999999I")
+        precondition(Date().timeIntervalSince(clock) < 0.1, "Tab counts are bounded by the width")
+        s = screen("\(esc)[" + String(repeating: "1;", count: 100_000) + "m")
+        precondition(s.text(ofRow: 0) == "", "A flood of parameters")
+        s = screen("\(esc)]0;" + String(repeating: "t", count: 1_000_000) + "\u{07}after")
+        precondition(s.title.count == TerminalScreen.titleLimit && s.text(ofRow: 0) == "after", "Long titles are cut, and the string still ends")
+        s = screen("\(esc)]0;" + String(repeating: "t", count: 100_000) + "\(esc)\\x")
+        precondition(s.title.count == TerminalScreen.titleLimit && s.text(ofRow: 0) == "x", "OSC ended by ESC \\")
+        clock = Date()
+        s = screen("e" + String(repeating: "\u{301}", count: 200_000) + "f")
+        let marked = s.text(ofRow: 0)
+        precondition(marked.unicodeScalars.count == TerminalScreen.marksPerCell + 1 && marked.hasSuffix("f"), "Combining marks per cell are capped")
+        precondition(Date().timeIntervalSince(clock) < 2, "A flood of combining marks is quick")
+
+        // Pasting: line breaks as Return, no control characters, so a paste can't end the bracketed
+        // paste early and run commands.
+        let pasted = TerminalScreen.pasteBytes("ls\r\nrm -rf x\u{1B}[201~\necho\u{03}\u{7F}\tend", bracketed: true)
+        precondition(pasted == Array("\u{1B}[200~ls\rrm -rf x[201~\recho\tend\u{1B}[201~".utf8), "Bracketed paste: \(String(decoding: pasted, as: UTF8.self).debugDescription)")
+        precondition(TerminalScreen.pasteBytes("a\nb", bracketed: false) == Array("a\rb".utf8), "Plain paste")
+        precondition(TerminalScreen.pasteBytes("中文 ✓", bracketed: false) == Array("中文 ✓".utf8), "Non-ASCII is kept")
+
         // Throughput: 10 MB of coloured output.
         let line = "\(esc)[32mgreen\(esc)[0m plain text with some words 中文 \(esc)[1mbold\(esc)[0m\r\n"
         let chunk = Array(String(repeating: line, count: 1000).utf8)
@@ -196,6 +225,6 @@ import Foundation
         var fed = 0
         while fed < 10_000_000 { big.feed(chunk); fed += chunk.count }
         let seconds = Date().timeIntervalSince(start)
-        print(String(format: "Terminal checks passed: text, wrapping, cursor, erasing, scroll regions, colours, Unicode, alternate screen, modes, mouse modes, selection text and words, replies, resizing, VoiceOver text and new output. 10 MB of output in %.2f s.", seconds))
+        print(String(format: "Terminal checks passed: text, wrapping, cursor, erasing, scroll regions, colours, Unicode, alternate screen, modes, mouse modes, selection text and words, replies, resizing, VoiceOver text, new output, limits on hostile output and pasting. 10 MB of output in %.2f s.", seconds))
     }
 }
