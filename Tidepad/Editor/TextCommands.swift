@@ -260,35 +260,54 @@ enum TextCommands {
         let original = source.substring(with: scope)
         let trimmed = original.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        // The text is already decoded, so an encoding="ISO-8859-1" declaration mustn't make the parser
+        // read it again as Latin-1 (café would become cafÃ©): it's parsed as UTF-8, and the original
+        // declaration is put back exactly as it was.
+        let declaration = Self.xmlDeclaration(trimmed)
+        let body = declaration.map { String(trimmed[$0.upperBound...]) } ?? trimmed
         // XMLDocument can recover from some errors silently, so check well-formedness strictly first.
-        let parser = XMLParser(data: Data(trimmed.utf8))
+        let parser = XMLParser(data: Data(body.utf8))
         guard parser.parse(), parser.parserError == nil else {
             let detail = parser.parserError.map { "Line \(parser.lineNumber): \($0.localizedDescription)" } ?? ""
             throw TextCommandFailure(errorDescription: "This isn’t well-formed XML. \(detail)")
         }
         let document: XMLDocument
         do {
-            document = try XMLDocument(xmlString: trimmed, options: [.nodePreserveCDATA, .nodePreserveEmptyElements])
+            document = try XMLDocument(xmlString: body, options: Self.xmlOptions)
         } catch {
             throw TextCommandFailure(errorDescription: "This isn’t well-formed XML. \(error.localizedDescription)")
         }
-        var text = document.xmlString(options: [.nodePrettyPrint, .nodePreserveCDATA, .nodePreserveEmptyElements])
-        if !trimmed.hasPrefix("<?xml"), text.hasPrefix("<?xml"), let end = text.range(of: "?>") {
+        var text = document.xmlString(options: Self.xmlOptions.union(.nodePrettyPrint))
+        if text.hasPrefix("<?xml"), let end = text.range(of: "?>") {
             text = String(text[end.upperBound...]).trimmingCharacters(in: .newlines)
         }
+        if let declaration { text = String(trimmed[declaration]) + "\n" + text }
         text = lines(text).map(\.content).joined(separator: lineEnding)
         if let last = original.last, terminators.contains(last) { text += lineEnding }
         return formatted(scope, original: original, text: text, actionName: "Format XML")
     }
 
+    /// Character references (&#169;) are kept as written where XMLDocument can. (Not .nodePreserveEntities:
+    /// on macOS it writes &amp; back as a bare &, which isn't XML.)
+    private static let xmlOptions: XMLNode.Options = [.nodePreserveCDATA, .nodePreserveEmptyElements,
+                                                      .nodePreserveCharacterReferences, .nodePreserveAttributeOrder]
+
+    /// The `<?xml … ?>` declaration at the start, if there is one.
+    private static func xmlDeclaration(_ text: String) -> Range<String.Index>? {
+        guard text.hasPrefix("<?xml"), let end = text.range(of: "?>") else { return nil }
+        return text.startIndex..<end.upperBound
+    }
+
     /// Formats SQL in the style of the "SQL Formatter" VS Code extension (sql-formatter-plus).
     static func formatSQL(_ source: TextSource, selection: NSRange, indent: String, lineEnding: String,
-                          uppercase: Bool = false) -> TextEdit? {
+                          uppercase: Bool = false) throws -> TextEdit? {
         let scope = selection.length > 0 ? selection : NSRange(location: 0, length: source.length)
         let original = source.substring(with: scope)
         guard !original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let normalized = original.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-        var text = SQLFormatter.format(normalized, options: .init(indent: indent, uppercase: uppercase))
+        guard var text = SQLFormatter.formatChecked(normalized, options: .init(indent: indent, uppercase: uppercase)) else {
+            throw TextCommandFailure(errorDescription: "TidePad couldn’t format this SQL without risking a change to what it means, so it was left as it is.")
+        }
         if lineEnding != "\n" { text = text.replacingOccurrences(of: "\n", with: lineEnding) }
         if let last = original.last, terminators.contains(last) { text += lineEnding }
         return formatted(scope, original: original, text: text, actionName: "Format SQL")

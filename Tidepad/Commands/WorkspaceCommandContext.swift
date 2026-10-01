@@ -157,7 +157,7 @@ import Observation
             case .removeDuplicateLines: edit = TextCommands.removeDuplicateLines(text, selection: selection, lineEnding: lineEnding)
             case .formatJSON: edit = try TextCommands.formatJSON(text, selection: selection, indent: indent, lineEnding: lineEnding)
             case .formatXML: edit = try TextCommands.formatXML(text, selection: selection, lineEnding: lineEnding)
-            case .formatSQL: edit = TextCommands.formatSQL(text, selection: selection, indent: indent, lineEnding: lineEnding)
+            case .formatSQL: edit = try TextCommands.formatSQL(text, selection: selection, indent: indent, lineEnding: lineEnding)
             }
             guard let edit, session.apply(edit) else { NSSound.beep(); return }
         } catch {
@@ -165,6 +165,7 @@ import Observation
             switch command {
             case .formatJSON: title = "Can’t Format JSON"
             case .formatXML: title = "Can’t Format XML"
+            case .formatSQL: title = "Can’t Format SQL"
             default: title = "Command Failed"
             }
             placeholder(title, detail: error.localizedDescription)
@@ -197,7 +198,7 @@ import Observation
                     switch command {
                     case .formatJSON: return try TextCommands.formatJSON(source, selection: selection, indent: indent, lineEnding: lineEnding)
                     case .formatXML: return try TextCommands.formatXML(source, selection: selection, lineEnding: lineEnding)
-                    default: return TextCommands.formatSQL(source, selection: selection, indent: indent, lineEnding: lineEnding)
+                    default: return try TextCommands.formatSQL(source, selection: selection, indent: indent, lineEnding: lineEnding)
                     }
                 }
             }.value

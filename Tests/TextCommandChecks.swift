@@ -101,6 +101,13 @@ import FoundationXML
             _ = try TextCommands.formatXML("<a><b></a>" as NSString, selection: caret(0), lineEnding: "\n")
             fatalError("Malformed XML must throw")
         } catch is TextCommandFailure {}
+        // A declared encoding doesn't garble the (already decoded) text, the declaration is kept as it was,
+        // and entities stay as written.
+        s = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><a><b>café &amp; &#169; ok</b></a>"
+        let declared = run(s, try TextCommands.formatXML(s as NSString, selection: caret(0), lineEnding: "\n"))!.0
+        precondition(declared.hasPrefix("<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n<a>") && declared.contains("café")
+                     && !declared.contains("Ã") && declared.contains("&amp;") && (declared.contains("&#169;") || declared.contains("©")),
+                     "XML encoding and entities: \(declared)") // A character reference may come back as its character: the same XML.
 
         // SQL, in the style of the "SQL Formatter" VS Code extension (sql-formatter-plus).
         s = "select a, count(*) as n from users u left join orders o on o.user_id = u.id where u.active = 1 and u.role in ('admin', 'owner') group by a order by n desc limit 10, 20;\n"
@@ -122,11 +129,12 @@ import FoundationXML
               10, 20;
 
             """
-        let sql = TextCommands.formatSQL(s as NSString, selection: caret(0), indent: "  ", lineEnding: "\n")
+        let sql = try TextCommands.formatSQL(s as NSString, selection: caret(0), indent: "  ", lineEnding: "\n")
         expect(run(s, sql), sqlExpected, caret(0), "Format SQL")
-        precondition(TextCommands.formatSQL(sqlExpected as NSString, selection: caret(0), indent: "  ", lineEnding: "\n") == nil, "SQL formatting is idempotent")
+        let sqlAgain = try TextCommands.formatSQL(sqlExpected as NSString, selection: caret(0), indent: "  ", lineEnding: "\n")
+        precondition(sqlAgain == nil, "SQL formatting is idempotent")
         s = "SELECT CASE WHEN x > 0 THEN 'it''s' ELSE 'no' END AS s FROM t -- note\r\nWHERE t.select = :id"
-        let sqlCase = TextCommands.formatSQL(s as NSString, selection: caret(0), indent: "    ", lineEnding: "\r\n")
+        let sqlCase = try TextCommands.formatSQL(s as NSString, selection: caret(0), indent: "    ", lineEnding: "\r\n")
         expect(run(s, sqlCase), "SELECT\r\n    CASE\r\n        WHEN x > 0 THEN 'it''s'\r\n        ELSE 'no'\r\n    END AS s\r\nFROM\r\n    t -- note\r\nWHERE\r\n    t.select = :id", nil, "SQL CASE blocks, comments, placeholders and CRLF")
         let upper = SQLFormatter.format("select a from t where b is not null union all select 1", options: .init(uppercase: true))
         precondition(upper == "SELECT\n  a\nFROM\n  t\nWHERE\n  b IS NOT NULL\nUNION ALL\nSELECT\n  1", "Uppercase keywords: \(upper)")
@@ -136,7 +144,26 @@ import FoundationXML
         precondition(cascade == "x int references p (id) on update cascade", "ON UPDATE is a keyword, not an UPDATE clause: \(cascade)")
         let queries = SQLFormatter.format("select 1; select 2;")
         precondition(queries == "select\n  1;\n\nselect\n  2;", "Blank line between queries: \(queries.debugDescription)")
+        // Formatting never changes what SQL means: parameters, prefixed strings, dollar quotes, system
+        // variables, names with $ and subscripts stay whole; anything it can't keep whole is refused.
+        let kept: [(String, String)] = [
+            ("select $1, $2 from t where x = $3", "select\n  $1,\n  $2\nfrom\n  t\nwhere\n  x = $3"),
+            ("select X'0A', b'101', E'a\\nb', U&'d\\0061t' from t", "select\n  X'0A',\n  b'101',\n  E'a\\nb',\n  U&'d\\0061t'\nfrom\n  t"),
+            ("select @@global.max_connections, @v from dual", "select\n  @@global.max_connections,\n  @v\nfrom\n  dual"),
+            ("create function f() returns int as $$ select  1 ; $$ language sql", "create function f() returns int as $$ select  1 ; $$ language sql"),
+            ("select * from v$session", "select\n  *\nfrom\n  v$session"),
+            ("select arr[1] from t", "select\n  arr[1]\nfrom\n  t"),
+            ("select a<<2, b->>'k' from t where x=-1", "select\n  a << 2,\n  b ->> 'k'\nfrom\n  t\nwhere\n  x = - 1"),
+        ]
+        for (input, expected) in kept {
+            let output = SQLFormatter.formatChecked(input)
+            precondition(output == expected, "SQL kept whole: \(input) → \(output.map { $0.debugDescription } ?? "refused")")
+        }
+        do {
+            _ = try TextCommands.formatSQL("select * from t where a = %s" as NSString, selection: caret(0), indent: "  ", lineEnding: "\n")
+            fatalError("SQL that can't be formatted safely must be refused")
+        } catch is TextCommandFailure {}
 
-        print("Text command checks passed: duplicate/delete/move lines, case, sort, remove duplicates, format JSON/XML/SQL.")
+        print("Text command checks passed: duplicate/delete/move lines, case, sort, remove duplicates, format JSON/XML (declared encodings, entities)/SQL (kept whole or refused).")
     }
 }

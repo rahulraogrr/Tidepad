@@ -95,7 +95,8 @@ struct SQLFormatter {
         table["END"] = .closeParen
         return table
     }()
-    private static let operators = ["->>", "<>", "!=", "<=", ">=", "||", "::", "->", "==", "=>", ":="]
+    private static let operators = ["->>", "!~*", "<>", "!=", "<=", ">=", "||", "::", "->", "==", "=>", ":=",
+                                    "<<", ">>", "&&", "@>", "<@", "~*", "!~"]
     private static let inlineMaxLength = 50
 
     // MARK: Tokenizer
@@ -136,7 +137,10 @@ struct SQLFormatter {
             double = unit("\""), backslash = unit("\\"), backtick = unit("`"), openBracket = unit("["),
             closeBracket = unit("]"), open = unit("("), close = unit(")"), question = unit("?"), at = unit("@"),
             colon = unit(":"), dot = unit("."), plus = unit("+"), zero = unit("0"), nUpper = unit("N"),
-            nLower = unit("n"), xUpper = unit("X"), xLower = unit("x"), eUpper = unit("E"), eLower = unit("e")
+            nLower = unit("n"), xUpper = unit("X"), xLower = unit("x"), eUpper = unit("E"), eLower = unit("e"),
+            dollar = unit("$"), ampersand = unit("&"), uUpper = unit("U"), uLower = unit("u")
+        // Letters that can prefix a string: N'national', X'hex', B'bits', E'escapes', R'raw'.
+        let stringPrefixes: Set<UInt8> = Set("NnXxBbEeRr".utf8)
 
         while i < c.count {
             let start = i, ch = c[i]
@@ -152,8 +156,10 @@ struct SQLFormatter {
                 while i < c.count && !(c[i] == star && next() == slash) { i += 1 }
                 i = min(c.count, i + 2)
                 emit(.blockComment, from: start)
-            } else if ch == single || ch == double || ((ch == nUpper || ch == nLower) && next() == single) {
-                if ch == nUpper || ch == nLower { i += 1 }
+            } else if ch == single || ch == double || (stringPrefixes.contains(ch) && next() == single)
+                        || ((ch == uUpper || ch == uLower) && next() == ampersand && next(2) == single) {
+                // A prefix stays part of the string: X'0A' is one value, X '0A' is two.
+                if ch != single && ch != double { i += (ch == uUpper || ch == uLower) ? 2 : 1 }
                 let quote = c[i]
                 i += 1
                 while i < c.count {
@@ -185,6 +191,21 @@ struct SQLFormatter {
                 i += 1
                 while i < c.count && isDigit(c[i]) { i += 1 }
                 emit(.placeholder, from: start)
+            } else if ch == dollar, let following = next(), isDigit(following) {
+                i += 1 // $1: a positional parameter.
+                while i < c.count && isDigit(c[i]) { i += 1 }
+                emit(.placeholder, from: start)
+            } else if ch == dollar, let end = dollarQuoteEnd(c, at: i) {
+                i = end // $$ … $$ or $tag$ … $tag$: a string, kept as it is.
+                emit(.string, from: start)
+            } else if ch == dollar, let following = next(), isWordUnit(following) {
+                i += 1
+                while i < c.count && isWordUnit(c[i]) { i += 1 }
+                emit(.placeholder, from: start)
+            } else if ch == at && next() == at, let following = next(2), isWordUnit(following) {
+                i += 2 // @@global: a system variable.
+                while i < c.count && isWordUnit(c[i]) { i += 1 }
+                emit(.placeholder, from: start)
             } else if (ch == at || ch == colon), let following = next(), isWordUnit(following) {
                 i += 1
                 while i < c.count && isWordUnit(c[i]) { i += 1 }
@@ -213,7 +234,8 @@ struct SQLFormatter {
                 if !lastSignificantIsDot, let (kind, end) = reservedPhrase(in: c, at: i) {
                     i = end; emit(kind, from: start)
                 } else {
-                    while i < c.count && isWordUnit(c[i]) { i += 1 }
+                    // A $ inside a name is part of it (v$session).
+                    while i < c.count && (isWordUnit(c[i]) || c[i] == dollar) { i += 1 }
                     emit(.word, from: start)
                 }
             } else {
@@ -224,6 +246,24 @@ struct SQLFormatter {
             }
         }
         return tokens
+    }
+
+    /// The end of a dollar-quoted string starting at `start` ($$ … $$ or $tag$ … $tag$), or the end of
+    /// the text if it isn't closed; nil if no dollar quote starts there.
+    private static func dollarQuoteEnd(_ c: [UInt8], at start: Int) -> Int? {
+        var j = start + 1
+        if j < c.count, c[j] != 0x24 {
+            guard isWordUnit(c[j]), !isDigit(c[j]) else { return nil }
+            while j < c.count && isWordUnit(c[j]) { j += 1 }
+        }
+        guard j < c.count, c[j] == 0x24 else { return nil }
+        let tag = Array(c[start...j])
+        var k = j + 1
+        while k + tag.count <= c.count {
+            if c[k] == 0x24 && Array(c[k..<(k + tag.count)]) == tag { return k + tag.count }
+            k += 1
+        }
+        return c.count
     }
 
     /// The longest keyword phrase (up to three words, any whitespace between) starting at `start`.
@@ -264,6 +304,61 @@ struct SQLFormatter {
     static func format(_ text: String, options: Options = Options()) -> String {
         var formatter = Layout(tokens: tokenize(text), options: options)
         return formatter.run()
+    }
+
+    /// Formats, or returns nil when the result might not mean the same as the text: the formatted text
+    /// is read again and must hold the same tokens, and two tokens that touched in the text may only
+    /// be spaced apart where SQL allows it (around commas, brackets and the usual operators). Spacing
+    /// something like `$1`, `X'0A'` or `arr[1]` apart would change it.
+    static func formatChecked(_ text: String, options: Options = Options()) -> String? {
+        let input = tokenize(text)
+        var formatter = Layout(tokens: input, options: options)
+        let result = formatter.run()
+        return sameMeaning(input, tokenize(result)) ? result : nil
+    }
+
+    /// Operators and punctuation that may have spaces around them.
+    private static let spaceable: Set<String> = ["=", "<", ">", "<=", ">=", "<>", "!=", "==", "+", "-", "*", "/", "||",
+                                                "::", "->", "->>", "=>", ":=", ",", ";", "<<", ">>", "&&", "@>", "<@",
+                                                "~*", "!~", "!~*"]
+
+    static func sameMeaning(_ before: [Token], _ after: [Token]) -> Bool {
+        func significant(_ tokens: [Token]) -> [(token: Token, touchesPrevious: Bool)] {
+            var result: [(Token, Bool)] = []
+            var previousWasSpace = true
+            for token in tokens {
+                if token.kind == .whitespace { previousWasSpace = true; continue }
+                result.append((token, !previousWasSpace))
+                previousWasSpace = token.kind == .lineComment // It ends with its line break.
+            }
+            return result
+        }
+        func normalized(_ token: Token) -> String {
+            switch token.kind {
+            case .blockComment, .lineComment:
+                return String(token.value.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) })
+            case .topLevel, .topLevelNoIndent, .newline, .reserved, .openParen, .closeParen:
+                return token.value.split(whereSeparator: \.isWhitespace).joined(separator: " ").uppercased()
+            default:
+                return token.value
+            }
+        }
+        func spaceableBetween(_ a: Token, _ b: Token) -> Bool {
+            if [.lineComment, .blockComment].contains(a.kind) || [.lineComment, .blockComment].contains(b.kind) { return true }
+            if a.value == "(" || a.value == ")" || b.value == ")" { return true }
+            if b.value == "(" { return false } // count (*) isn't count(*) everywhere (MySQL).
+            if [",", ";"].contains(a.value) || [",", ";"].contains(b.value) { return true }
+            // Two operators that touch may be one (<< or @>): only a unary sign may be spaced off (x=-1).
+            if a.kind == .op && b.kind == .op { return b.value == "-" || b.value == "+" }
+            return (a.kind == .op && spaceable.contains(a.value)) || (b.kind == .op && spaceable.contains(b.value))
+        }
+        let a = significant(before), b = significant(after)
+        guard a.count == b.count else { return false }
+        for k in a.indices {
+            guard a[k].token.kind == b[k].token.kind, normalized(a[k].token) == normalized(b[k].token) else { return false }
+            if k > 0, a[k].touchesPrevious, !b[k].touchesPrevious, !spaceableBetween(a[k - 1].token, a[k].token) { return false }
+        }
+        return true
     }
 
     /// Builds the output in a UTF-8 byte buffer: appends and "does it end with a space/newline?"
@@ -311,6 +406,8 @@ struct SQLFormatter {
                     append(keyword(token.value)); append(0x20); noteReserved(token)
                 case .openParen: openParenthesis(token)
                 case .closeParen: closeParenthesis(token)
+                case .string where token.value.hasPrefix("[") && index > 0 && tokens[index - 1].kind != .whitespace:
+                    trimEnd(); append(token.value); append(0x20) // A subscript (arr[1]) stays on its name.
                 case .placeholder, .string, .number, .word: append(token.value); append(0x20)
                 case .op:
                     switch token.value {
