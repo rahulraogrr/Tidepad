@@ -40,6 +40,18 @@ import Foundation
                      && AIPrompt.usedBytes(3..<13, used: whole.usedText) == 3..<13, "All of a short selection")
         precondition(AIRequest.rewrite(.shorter).title == "Make Shorter" && AIRequest.regex("x").title == "Write Regular Expression")
 
+        // Links in answers: web pages stay clickable; anything else (files, apps, scripts) is plain text.
+        for (link, web) in [("https://developer.apple.com", true), ("HTTP://example.com", true), ("file:///etc/passwd", false),
+                            ("javascript:alert(1)", false), ("x-apple.systempreferences:x", false), ("tidepad://open", false)] {
+            precondition(AIPrompt.isWebLink(URL(string: link)!) == web, "Web link? \(link)")
+        }
+        #if canImport(Darwin)
+        let linked = AIPrompt.styledAnswer("See [docs](https://developer.apple.com), [this](file:///etc/passwd), [run](javascript:alert(1)) and [app](x-apple.systempreferences:x). **Bold** `code`")!
+        let links = linked.runs.compactMap(\.link)
+        precondition(links == [URL(string: "https://developer.apple.com")!], "Only web links: \(links)")
+        precondition(String(linked.characters) == "See docs, this, run and app. Bold code", "Text kept: \(String(linked.characters))")
+        #endif
+
         // Answers cleaned up.
         let patterns: [(String, String)] = [
             ("\\d{3}-\\d{4}", "\\d{3}-\\d{4}"),
@@ -57,6 +69,6 @@ import Foundation
         precondition(AIPrompt.cleanedRewrite("```\nFixed text.\n```") == "Fixed text.")
         precondition(AIPrompt.cleanedRewrite("```markdown\n- one\n- two\n```") == "- one\n- two")
         precondition(AIPrompt.cleanedRewrite("  The text.\n") == "The text.")
-        print("AI checks passed: text cut to fit (at line breaks, by characters), Replace limited to the text given, prompts for Explain, Summarise, Rewrite and regular expressions, answers cleaned up.")
+        print("AI checks passed: only web links in answers, text cut to fit (at line breaks, by characters), Replace limited to the text given, prompts for Explain, Summarise, Rewrite and regular expressions, answers cleaned up.")
     }
 }

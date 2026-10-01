@@ -50,7 +50,15 @@ import Observation
     func save(asNew: Bool = false) {
         if let document { documents.save(document, saveAs: asNew) }
     }
-    func closeTab() { if let document { documents.close(document) } }
+    /// File ▸ Close Tab (⌘W). With another window in front (Settings, About, Search, On-Device AI),
+    /// ⌘W closes that window instead, as everywhere on the Mac.
+    func closeTab() {
+        if let key = NSApp.keyWindow, let window, key !== window {
+            key.performClose(nil)
+            return
+        }
+        if let document { documents.close(document) } else { NSSound.beep() }
+    }
     /// File ▸ Print (see DocumentPrinter).
     func printDocument() {
         guard let session else { return }

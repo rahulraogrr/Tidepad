@@ -38,8 +38,14 @@ enum UpdateCheck {
         guard let payload = try? JSONDecoder().decode(Payload.self, from: data), payload.draft != true, payload.prerelease != true else { return nil }
         var version = payload.tag_name.trimmingCharacters(in: .whitespaces)
         if version.lowercased().hasPrefix("v") { version.removeFirst() }
-        guard !version.isEmpty else { return nil }
+        guard !version.isEmpty, isReleasePage(payload.html_url) else { return nil }
         return Release(version: version, page: payload.html_url, notes: payload.body ?? "")
+    }
+
+    /// Only TidePad's own release pages on GitHub are opened, whatever the answer says.
+    static func isReleasePage(_ url: URL) -> Bool {
+        url.scheme == "https" && url.host?.lowercased() == "github.com"
+            && url.path.lowercased().hasPrefix("/rahulraogrr/tidepad/releases/") && url.user == nil && url.port == nil
     }
 
     /// Whether `version` is newer than `current`, comparing the numbers in turn: 1.10 is newer than

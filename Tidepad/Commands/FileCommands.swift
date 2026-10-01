@@ -26,7 +26,7 @@ private struct FileMenuItems: View {
                 .keyboardShortcut("s", modifiers: [.command, .shift]).disabled(!context.hasDocument)
             Button("Save All", action: context.documents.saveAll).disabled(context.documents.documents.isEmpty)
             Divider()
-            Button("Close Tab", action: context.closeTab).keyboardShortcut("w").disabled(!context.hasDocument)
+            Button("Close Tab", action: context.closeTab).keyboardShortcut("w") // Also closes other windows in front.
             Button("Close All") { context.documents.closeAll() }.disabled(context.documents.documents.isEmpty)
             Button("Close Other Tabs") { context.documents.closeAll(except: context.document?.id) }
                 .disabled(context.documents.documents.count < 2 || !context.hasDocument)

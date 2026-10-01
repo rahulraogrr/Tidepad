@@ -91,6 +91,23 @@ struct AIPrompt: Equatable, Sendable {
         range.lowerBound..<min(range.upperBound, range.lowerBound + used.utf8.count)
     }
 
+    /// An Explain or Summarise answer with its Markdown (**bold**, `code`) shown as styled text, line
+    /// breaks kept. Links are kept only to web pages: an answer can be steered by the text it's about,
+    /// so a link to a file, an app or a script mustn't become clickable.
+    #if canImport(Darwin)
+    static func styledAnswer(_ answer: String) -> AttributedString? {
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        guard var styled = try? AttributedString(markdown: answer, options: options) else { return nil }
+        for run in styled.runs {
+            if let link = run.link, !isWebLink(link) { styled[run.range].link = nil }
+        }
+        return styled
+    }
+    #endif
+
+    /// A link to a web page (http or https), the only kind an answer may have.
+    static func isWebLink(_ url: URL) -> Bool { ["http", "https"].contains(url.scheme?.lowercased() ?? "") }
+
     /// The regular expression in the model's answer: the first non-empty line, without the backticks,
     /// quotes, slashes or "Regex:" label small models sometimes add anyway.
     static func cleanedPattern(_ answer: String) -> String {

@@ -61,6 +61,16 @@ import Foundation
         let starts = try LargeTextSearch(SearchQuery(text: "^", mode: .regex)).replacements(in: bom, range: 0..<bom.count, template: ">")
         precondition(starts.map(\.range) == [3..<3, 6..<6], "line starts after a BOM: \(starts.map(\.range))")
 
+        // \n, \r and \t in a regular-expression replacement are a line break, return and tab, as in
+        // Notepad++, in both engines; \\, \$ and $1 keep their template meaning.
+        precondition(SearchEngine.regexTemplate("$1\\n\\t\\\\\\$x\\") == "$1\n\t\\\\\\$x\\", "Template escapes: \(SearchEngine.regexTemplate("$1\\n\\t\\\\\\$x\\").debugDescription)")
+        let pairs = try buffer(Array("a=1;b=2".utf8))
+        let split = try LargeTextSearch(SearchQuery(text: "(\\w)=(\\d);?", mode: .regex)).replacements(in: pairs, range: 0..<pairs.count, template: "$1:\\t$2\\n")
+        precondition(split.map { String(decoding: $0.bytes, as: UTF8.self) } == ["a:\t1\n", "b:\t2\n"], "Large file: \\n and \\t")
+        let normal = try SearchEngine(SearchQuery(text: "(\\w)=(\\d);?", mode: .regex))
+            .replacement(SearchSnapshot(text: "a=1;b=2", revision: 0), template: "$1:\\t$2\\n\\$")
+        precondition(normal?.text == "a:\t1\n$b:\t2\n$", "Normal editor: \\n, \\t and \\$: \(normal?.text.debugDescription ?? "nil")")
+
         // Replace All's limit: nothing is planned past it.
         let many = try buffer(Array(String(repeating: "a,", count: 150_000).utf8))
         do { _ = try LargeTextSearch(SearchQuery(text: ",")).replacements(in: many, range: 0..<many.count, template: ";"); preconditionFailure("limit") }
@@ -70,7 +80,7 @@ import Foundation
         precondition(Set(sharedPieces.filter { !($0.source === many.file) }.map(\.start)).count == 1, "equal replacements share added text")
 
         try speed(dir)
-        print("Large search checks passed: regex, whole word, case, ^ and $, empty matches, templates, Replace All and Replace across chunk cuts and pieces (LF and CRLF, Telugu, emoji), invalid UTF-8, BOM, limit.")
+        print("Large search checks passed: \\n and \\t in replacements, regex, whole word, case, ^ and $, empty matches, templates, Replace All and Replace across chunk cuts and pieces (LF and CRLF, Telugu, emoji), invalid UTF-8, BOM, limit.")
     }
 
     /// Every query, with tiny chunks, against SearchEngine over the whole text.

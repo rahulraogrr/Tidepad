@@ -354,8 +354,7 @@ private struct AIPanelView: View {
         switch controller.request {
         case .explain?, .summarise?:
             // Small models often use **bold** and `code`: shown as such, keeping line breaks.
-            let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-            if let styled = try? AttributedString(markdown: controller.output, options: options) {
+            if let styled = AIPrompt.styledAnswer(controller.output) {
                 Text(styled)
             } else {
                 Text(controller.output)

@@ -167,7 +167,7 @@ struct LargeTextSearch: @unchecked Sendable {
     }
 
     private func replacementLiteral(_ template: String) throws -> String {
-        query.mode == .extended ? try SearchEngine.decode(template) : template
+        query.mode == .extended ? try SearchEngine.decode(template) : query.mode == .regex ? SearchEngine.regexTemplate(template) : template
     }
 
     /// In regular-expression mode the replacement is a template ($1, \\$); otherwise it's the text itself.

@@ -25,6 +25,26 @@ final class SearchEngine: @unchecked Sendable {
         return try NSRegularExpression(pattern: pattern, options: options)
     }
 
+    /// A regular-expression replacement as Notepad++ reads it: \n, \r and \t are a line break, return
+    /// and tab (NSRegularExpression would insert the letter), while \\, \$ and $1 keep their template meaning.
+    static func regexTemplate(_ template: String) -> String {
+        guard template.contains("\\") else { return template }
+        var result = "", escaped = false
+        for character in template {
+            if escaped {
+                switch character {
+                case "n": result.append("\n")
+                case "r": result.append("\r")
+                case "t": result.append("\t")
+                default: result.append("\\"); result.append(character) // \\ and \$ stay escapes for the template.
+                }
+                escaped = false
+            } else if character == "\\" { escaped = true } else { result.append(character) }
+        }
+        if escaped { result.append("\\") }
+        return result
+    }
+
     static func decode(_ text: String) throws -> String {
         var result = "", escaped = false
         for character in text {
@@ -120,7 +140,7 @@ final class SearchEngine: @unchecked Sendable {
         let timing = SearchTiming("Replace All plan"); defer { timing.finish() }
         let ns = source.text as NSString
         let bounds = range ?? NSRange(location: 0, length: ns.length)
-        let replacement = query.mode == .extended ? try Self.decode(template) : template
+        let replacement = query.mode == .extended ? try Self.decode(template) : query.mode == .regex ? Self.regexTemplate(template) : template
         var edits: [(NSRange, String)] = []
         var overflow = false
         enumerate(source, range: bounds, cancelled: cancelled) { match, checking in
