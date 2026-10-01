@@ -175,6 +175,21 @@ final class SyntaxDocument {
             precondition(!document.tokens(line: 0).contains { $0.kind == .string && $0.range.length > 3 }, "Apostrophe opened a string in \(language)")
             precondition(document.state(line: 1).quote == 0, "Quote state carried over in \(language)")
         }
+        // YAML single quotes don't use backslash escapes, so a Windows path ends at its quote.
+        let windowsPath = SyntaxDocument("path: 'C:\\'\nnext: 42\n", .yaml)
+        precondition(windowsPath.state(line: 1).quote == 0 && windowsPath.tokens(line: 1).contains { $0.kind == .keyword } && windowsPath.tokens(line: 1).contains { $0.kind == .number },
+                     "YAML 'C:\\' ends at its quote")
+        // A stray backquote in Markdown stays on its line.
+        let stray = SyntaxDocument("Press the ` key\nNext line\nThird `code` here\n", .markdown)
+        precondition(stray.state(line: 1).quote == 0 && !stray.tokens(line: 1).contains { $0.kind == .string }
+                     && stray.tokens(line: 2).contains { $0.kind == .string }, "Markdown stray backquote")
+        // true/yes/no/null are ordinary words in prose and markup text, values elsewhere.
+        for (language, source) in [(SyntaxLanguage.markdown, "Is it true? yes or no, null and void\n"), (.html, "<p>true or false, yes or no</p>\n"),
+                                   (.xml, "<flag>true</flag>\n")] {
+            precondition(!SyntaxDocument(source, language).tokens().contains { $0.kind == .literal }, "No literals in \(language) text")
+        }
+        precondition(SyntaxDocument("enabled: yes\n", .yaml).tokens().contains { $0.kind == .literal }, "YAML literals stay")
+
         // Markup: the tag name is a tag, later names in the tag are attributes.
         let markup = SyntaxDocument("<div class=\"x\" id='y'>text</div>", .html)
         let kinds = markup.tokens().filter { $0.kind == .tag || $0.kind == .attribute }.map(\.kind)

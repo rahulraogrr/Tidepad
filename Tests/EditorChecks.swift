@@ -728,8 +728,22 @@ import AppKit
         first.textView.redo(nil)
         pump(0.01)
         precondition(first.document.hasUnsavedChanges, "Redo to text of the saved length that isn't the saved text")
+        // Replacing the whole text (Reload from disk) keeps the caret where it was.
+        first.textView.setSelectedRange(NSRange(location: 6, length: 0))
+        first.document.text = "alpha beta gamma\n"
+        pump(0.01)
+        precondition(first.document.text == "alpha beta gamma\n" && first.textView.selectedRange() == NSRange(location: 6, length: 0),
+                     "Reload keeps the caret: \(first.textView.selectedRange())")
+        // Text put in by a command is in the plain font, even where the text it replaces started bold.
+        let bold = NSFontManager.shared.convert(first.baseFont, toHaveTrait: .boldFontMask)
+        first.textView.textStorage?.addAttribute(.font, value: bold, range: NSRange(location: 0, length: 5))
+        precondition(first.apply(TextEdit(range: NSRange(location: 0, length: (first.document.text as NSString).length), text: "one two three\n",
+                                          selection: NSRange(location: 0, length: 0), actionName: "Format")))
+        let replacedFont = first.textView.textStorage?.attribute(.font, at: 1, effectiveRange: nil) as? NSFont
+        precondition(replacedFont?.fontDescriptor.symbolicTraits.contains(.bold) == false && replacedFont?.pointSize == first.baseFont.pointSize,
+                     "Replaced text isn't bold: \(String(describing: replacedFont))")
         window.contentView = nil
-        print("PASS undo per tab, typing as one undo step, saved state across undo and redo")
+        print("PASS undo per tab, typing as one undo step, saved state across undo and redo, Reload keeps the caret, replaced text in the plain font")
     }
 
     @MainActor static func checkExternalChanges(output: URL) throws {

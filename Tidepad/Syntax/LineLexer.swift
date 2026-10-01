@@ -25,6 +25,9 @@ struct LineLexer: Sendable {
     // Language traits, worked out once: they're consulted for nearly every character.
     private let isMarkup, hasSlashComments, hasBlockComments, nestsBlockComments: Bool
     private let isSQL, isYAML, isJSON, isMarkdown, isPython, hasTripleQuotes, namesKeysAsKeywords, hasKeywords: Bool
+    /// true/false/null/yes/no are values in code and data, but ordinary words in prose (Markdown) and
+    /// in markup text.
+    private let hasLiterals: Bool
     /// Keywords and literals as ASCII, at [length * 128 + first letter] (lower case in SQL, which ignores case).
     private let keywordTable: [[[UInt8]]]
     private let literalTable: [[[UInt8]]]
@@ -52,6 +55,7 @@ struct LineLexer: Sendable {
         isPython = language == .python
         hasTripleQuotes = language == .swift || language == .java
         namesKeysAsKeywords = language == .yaml || language == .css
+        hasLiterals = !language.isMarkup && language != .markdown
         let keywords = language.keywords
         hasKeywords = !keywords.isEmpty
         func table(_ words: [String]) -> [[[UInt8]]] {
@@ -170,7 +174,9 @@ struct LineLexer: Sendable {
                         state.tripleQuote = false
                         break
                     }
-                    if at(i) == 92 && !isMarkup { i = min(count, i + 2) }
+                    // A backslash escapes the next character, except in YAML single quotes ('' escapes a
+                    // quote there, so 'C:\' ends at its quote) and Markdown code spans.
+                    if at(i) == 92 && !isMarkup && !isMarkdown && !(isYAML && quote == 39) { i = min(count, i + 2) }
                     else { i += 1 }
                 }
                 emit(start, i, .string)
@@ -218,8 +224,8 @@ struct LineLexer: Sendable {
                 i += 1
                 while i < count && (isWord(at(i)) || isDigit(at(i))) { i += 1 }
                 // Only words that could be a literal or keyword are looked up.
-                guard hasKeywords || isMarkup || namesKeysAsKeywords || (2...9).contains(i - start) else { continue }
-                if listed(literalTable, start, i) {
+                guard hasKeywords || isMarkup || namesKeysAsKeywords || (hasLiterals && (2...9).contains(i - start)) else { continue }
+                if hasLiterals && listed(literalTable, start, i) {
                     emit(start, i, .literal)
                 } else if hasKeywords && listed(keywordTable, start, i) { emit(start, i, .keyword) }
                 else if isMarkup && state.inTag {
@@ -238,7 +244,9 @@ struct LineLexer: Sendable {
             }
         }
         // Normal single-line strings recover at EOL; multiline literals retain state.
-        if state.quote != 0 && !state.tripleQuote && state.quote != 96 && !isMarkup && !isSQL && !isYAML { state.quote = 0 }
+        // (JavaScript template literals in backquotes can span lines; Markdown code spans don't carry
+        // on past their line, so a stray backquote doesn't colour the rest of the file.)
+        if state.quote != 0 && !state.tripleQuote && (isMarkdown || (state.quote != 96 && !isMarkup && !isSQL && !isYAML)) { state.quote = 0 }
         return tokens
     }
 

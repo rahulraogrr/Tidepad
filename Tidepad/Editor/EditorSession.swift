@@ -95,8 +95,13 @@ import Combine
         }
         document.attachStorage(read: { [weak storage] in storage?.string ?? "" },
             replace: { [weak self] value in
+                // The whole text replaced (Reload from disk, Reopen with Encoding): the caret stays
+                // where it was, as far as the new text goes, rather than jumping to the end.
                 guard let self else { return }
-                _ = self.applySearchReplacement(range: NSRange(location: 0, length: self.textView.textStorage?.length ?? 0), text: value)
+                let selection = self.textView.selectedRange(), length = (value as NSString).length
+                let kept = NSRange(location: min(selection.location, length), length: min(selection.length, max(0, length - selection.location)))
+                _ = self.applySearchReplacement(range: NSRange(location: 0, length: self.textView.textStorage?.length ?? 0), text: value,
+                                                selection: kept)
             })
         textView.appearanceChanged = { [weak self] in
             self?.highlighter?.refresh()
@@ -140,8 +145,15 @@ import Combine
         // Validate/register native undo exactly once. Direct storage editing avoids insertText's
         // forced layout/scroll to the end of a multi-megabyte replacement.
         guard EditorDiagnostics.measure("bulk undo registration", { textView.shouldChangeText(in: range, replacementString: text) }) else { return false }
+        // In the editor's plain attributes: a plain String would take on those of the text it replaces,
+        // so formatting a document that starts with a bold keyword would make all of it bold.
+        var attributes = textView.typingAttributes
+        attributes[.font] = baseFont
+        if let paragraph = textView.defaultParagraphStyle { attributes[.paragraphStyle] = paragraph }
         storage.beginEditing()
-        EditorDiagnostics.measure("bulk storage mutation") { storage.replaceCharacters(in: range, with: text) }
+        EditorDiagnostics.measure("bulk storage mutation") {
+            storage.replaceCharacters(in: range, with: NSAttributedString(string: text, attributes: attributes))
+        }
         EditorDiagnostics.measure("bulk end editing") { storage.endEditing() }
         let caret = selection ?? NSRange(location: range.location + (text as NSString).length, length: 0)
         textView.setSelectedRange(NSRange(location: min(caret.location, storage.length), length: min(caret.length, max(0, storage.length - caret.location))))
