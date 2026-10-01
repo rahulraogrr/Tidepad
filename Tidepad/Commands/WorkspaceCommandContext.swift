@@ -7,6 +7,8 @@ import Observation
     @ObservationIgnored lazy var search = SearchController(context: self)
     /// Tools ▸ On-Device AI (Apple's on-device model).
     @ObservationIgnored lazy var ai = AIController(context: self)
+    /// TidePad ▸ Check for Updates… and the weekly automatic check.
+    @ObservationIgnored lazy var updates = UpdateController(preferences: preferences)
     let documents: DocumentManager
     let sessions: EditorSessionStore
     let preferences: EditorPreferences

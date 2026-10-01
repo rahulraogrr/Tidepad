@@ -115,7 +115,7 @@ You need Xcode 26 or later.
 git clone https://github.com/rahulraogrr/Tidepad.git
 cd Tidepad
 xcodebuild -project Tidepad.xcodeproj -scheme Tidepad -derivedDataPath build/DerivedData build
-open build/DerivedData/Build/Products/Debug/Tidepad.app
+open build/DerivedData/Build/Products/Debug/TidePad.app
 ```
 
 Run the checks (about ten test programs covering storage, syntax, search, the terminal, large files, AI prompts and the editor itself):
@@ -123,6 +123,10 @@ Run the checks (about ten test programs covering storage, syntax, search, the te
 ```sh
 Tests/run-checks.sh
 ```
+
+## Privacy
+
+TidePad collects nothing. Your files and everything you select for on-device AI stay on your Mac. Once a week TidePad asks GitHub whether a newer version has been released (turn this off in Settings ▸ General); nothing else is sent. Crash reports from macOS are kept on your Mac, and Help ▸ Report a Problem… opens a GitHub issue that you choose whether to send.
 
 ## Principles
 

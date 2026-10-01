@@ -32,6 +32,9 @@ import AppKit
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         sessions.openFiles = { [weak self] urls in self?.open(urls) }
+        // Crash reports from macOS (kept on this Mac), and the weekly update check if it's on.
+        CrashReports.shared.start()
+        commandContext.updates.scheduleAutomaticCheck()
         // Find in Files searches the open folder.
         project.didOpen = { [weak self] folder in self?.commandContext.search.directory = folder.path }
         // Right-click ▸ On-Device AI in both editors.

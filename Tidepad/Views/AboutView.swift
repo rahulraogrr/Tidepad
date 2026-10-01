@@ -57,37 +57,12 @@ struct AboutView: View {
         .background(AboutWindowStyle())
     }
 
-    private var version: String { value("CFBundleShortVersionString") }
-
-    /// "Build 1, built on 30 September 2026": the build number, and when the app itself was built.
-    private var buildLine: String {
-        let built = (try? Bundle.main.executableURL?.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-        let date = built.map { ", built on " + $0.formatted(date: .long, time: .omitted) } ?? ""
-        return "Build \(value("CFBundleVersion"))\(date)"
-    }
-
-    /// "macOS 27.0 (26A428), Apple silicon".
-    private var systemLine: String {
-        let system = ProcessInfo.processInfo.operatingSystemVersionString.replacingOccurrences(of: "Version ", with: "")
-            .replacingOccurrences(of: "Build ", with: "")
-        #if arch(arm64)
-        let chip = "Apple silicon"
-        #else
-        let chip = "Intel"
-        #endif
-        return "macOS \(system), \(chip)"
-    }
-
-    private var aiState: String {
-        guard OnDeviceModel.isSupported else { return "needs macOS 26 or later" }
-        return OnDeviceModel.unavailableReason() == nil ? "available" : "turned off or not ready"
-    }
-
+    private var version: String { AppDetails.version }
+    private var buildLine: String { AppDetails.buildLine }
+    private var systemLine: String { AppDetails.systemLine }
+    private var aiState: String { AppDetails.aiState }
     /// What Copy and Close copies, for a bug report.
-    private var details: String {
-        "TidePad \(version) (\(buildLine))\n\(systemLine)\nOn-device AI: \(aiState)"
-    }
-
+    private var details: String { AppDetails.summary }
     private func value(_ key: String) -> String { info[key] as? String ?? "" }
 }
 

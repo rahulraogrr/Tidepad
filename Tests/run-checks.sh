@@ -22,5 +22,7 @@ xcrun swiftc -O "${flags[@]}" Tidepad/Storage/LargeTextFile.swift Tidepad/Storag
 build/LargeSearchChecks
 xcrun swiftc "${flags[@]}" Tidepad/AI/AIPrompts.swift Tests/AIChecks.swift -o build/AIChecks
 build/AIChecks
+xcrun swiftc "${flags[@]}" Tidepad/Support/UpdateCheck.swift Tests/UpdateChecks.swift -o build/UpdateChecks
+build/UpdateChecks
 xcrun swiftc "${flags[@]}" Tidepad/Models/*.swift Tidepad/Documents/*.swift Tidepad/Editor/*.swift Tidepad/Syntax/*.swift Tidepad/Utilities/*.swift Tidepad/Project/*.swift Tidepad/Terminal/*.swift Tidepad/Session/*.swift Tidepad/Storage/LargeTextFile.swift Tidepad/Storage/LargeTextBuffer.swift Tidepad/Search/SearchQuery.swift Tidepad/Search/SearchEngine.swift Tidepad/Search/LargeTextSearch.swift Tests/EditorChecks.swift -o build/EditorChecks
 build/EditorChecks

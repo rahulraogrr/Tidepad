@@ -29,6 +29,8 @@ struct EditorDisplayOptions: Equatable {
     var fontName: String? { didSet { save(fontName, "fontName") } }
     var fontSize = TidepadMetrics.editorFontSize { didSet { save(Double(fontSize), "fontSize") } }
     var tabSize = 4 { didSet { save(tabSize, "tabSize") } }
+    /// TidePad ▸ Check for Updates… also runs by itself, at most once a week (UpdateController).
+    var checkForUpdates = true { didSet { save(checkForUpdates, "checkForUpdates") } }
     @ObservationIgnored private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -42,6 +44,7 @@ struct EditorDisplayOptions: Equatable {
         fontName = value("fontName")
         fontSize = (value("fontSize") as Double?).map { CGFloat(min(48, max(8, $0))) } ?? TidepadMetrics.editorFontSize
         tabSize = (value("tabSize") as Int?).map { min(16, max(1, $0)) } ?? 4
+        checkForUpdates = value("checkForUpdates") ?? true
     }
 
     private static let prefix = "Tidepad.Preferences."

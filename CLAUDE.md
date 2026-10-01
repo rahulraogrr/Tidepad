@@ -100,6 +100,14 @@ identifier, the Help book folder and saved-data names keep `Tidepad`, so setting
   reports). Neither Apple ready-made option fits: the standard About panel always shows such text in a
   bordered scroll box, and NSAlert's wide layout (macOS 26+) can't be arranged like this. Version and
   copyright come from Info.plist.
+- Updates and crash reports (2026-10-01): Check for Updates… and a weekly automatic check (Settings ▸
+  General, on by default) ask GitHub Releases' latest-release API with `URLSession`; a newer version
+  opens its release page, nothing is installed. Sparkle was not used (third-party, Rule no. 1). Crash
+  and hang reports come from Apple's MetricKit (`MXMetricManager`), saved as JSON in Application
+  Support/Tidepad/Diagnostics and never sent; Help ▸ Report a Problem… opens a pre-filled GitHub issue.
+- Product name (2026-10-01): `PRODUCT_NAME = TidePad`, so the app is TidePad.app with a TidePad
+  executable (Info.plist uses `$(EXECUTABLE_NAME)`). The scheme, target, folders, bundle ID and saved-data
+  names stay `Tidepad`.
 - Terminal panel (2026-09-28): the shell runs on a pseudo-terminal created with `forkpty` from macOS's
   C library, not Foundation's `Process`, because `Process` can't give the shell a controlling
   terminal, which job control, Ctrl-C and full-screen programs need; Terminal.app works the same way.

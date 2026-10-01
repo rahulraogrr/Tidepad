@@ -43,6 +43,10 @@ private struct GeneralPreferencesPane: View {
                     Toggle("Status bar", isOn: context.preference(\.showStatusBar))
                 }
             }
+            LabeledContent("Updates:") {
+                Toggle("Check for updates automatically", isOn: context.preference(\.checkForUpdates))
+                    .help("Once a week, TidePad asks GitHub whether a newer version has been released. Nothing else is sent.")
+            }
         }
         .padding(20)
     }

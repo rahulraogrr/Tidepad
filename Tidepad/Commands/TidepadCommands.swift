@@ -12,7 +12,10 @@ struct TidepadCommands: Commands {
         LanguageCommands(context: context)
         SettingsCommands(context: context)
         ToolsCommands(context: context)
-        CommandGroup(replacing: .appInfo) { AboutMenuItem() }
+        CommandGroup(replacing: .appInfo) {
+            AboutMenuItem()
+            Button("Check for Updates…") { context.updates.checkNow() }
+        }
         CommandGroup(replacing: .appVisibility) {
             // Cmd+H belongs to Replace; keep Hide available with an unambiguous alternate shortcut.
             Button("Hide TidePad") { NSApp.hide(nil) }.keyboardShortcut("h", modifiers: [.command, .control])
@@ -24,6 +27,10 @@ struct TidepadCommands: Commands {
             // the Help menu's search field searches it too.
             Button("TidePad Help") { NSApp.showHelp(nil) }.keyboardShortcut("?", modifiers: .command)
             Button("Keyboard Shortcuts") { TidepadHelp.open("shortcuts") }
+            Divider()
+            // Crash reports stay on this Mac (CrashReports); reporting a problem opens a GitHub issue.
+            Button("Report a Problem…") { CrashReports.reportProblem() }
+            Button("Show Crash Reports") { CrashReports.showReports() }
         }
     }
 }

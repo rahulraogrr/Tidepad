@@ -6,7 +6,7 @@ import time
 import sys
 
 root = Path(__file__).resolve().parent.parent
-binary = root / "build/DerivedData/Build/Products/Debug/Tidepad.app/Contents/MacOS/Tidepad"
+binary = root / "build/DerivedData/Build/Products/Debug/TidePad.app/Contents/MacOS/TidePad"
 for kind in (sys.argv[1:] or ("menu", "search")):
     output = root / "build" / f"performance-{kind}-validation"
     output.mkdir(exist_ok=True)

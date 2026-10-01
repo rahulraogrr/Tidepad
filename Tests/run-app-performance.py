@@ -16,7 +16,7 @@ def run(configuration, stem, extras, report_key):
     env = dict(os.environ, **extras)
     env[report_key] = str(report)
     env["TIDEPAD_LAUNCH_START"] = str(time.time())
-    binary = products / configuration / "Tidepad.app/Contents/MacOS/Tidepad"
+    binary = products / configuration / "TidePad.app/Contents/MacOS/TidePad"
     with (out / (stem + ".log")).open("w") as log:
         process = subprocess.Popen([str(binary)], env=env, stdout=log, stderr=log)
         try:
