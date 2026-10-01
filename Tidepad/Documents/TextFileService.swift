@@ -7,12 +7,15 @@ struct LoadedText: Sendable {
     let hasBOM: Bool
     let lines: LineIndex.Prepared
     let stamp: FileStamp?
+    /// Worked out as the file loads, off the main thread (see TextFingerprint).
+    let fingerprint: TextFingerprint
     func makeDocument() -> EditorDocument {
         let document = EditorDocument(fileURL: url, displayName: url.lastPathComponent,
             text: text, encoding: encoding, lineEnding: lines.lineEnding)
         document.hasByteOrderMark = hasBOM
         document.preparedLines = lines
         document.diskStamp = stamp
+        document.savedFingerprint = fingerprint
         return document
     }
 }
@@ -67,7 +70,7 @@ struct TextFileService {
         if let choice {
             guard let decoded = choice.decode(data) else { throw CocoaError(.fileReadInapplicableStringEncoding) }
             return LoadedText(url: url, text: decoded.text, encoding: choice.encoding, hasBOM: decoded.hadByteOrderMark,
-                              lines: LineIndex.Prepared(decoded.text), stamp: stamp)
+                              lines: LineIndex.Prepared(decoded.text), stamp: stamp, fingerprint: TextFingerprint(decoded.text))
         }
         let signatures: [(bytes: [UInt8], encoding: String.Encoding)] = [
             ([0x00, 0x00, 0xFE, 0xFF], .utf32BigEndian),
@@ -98,7 +101,7 @@ struct TextFileService {
             }
         }
         return LoadedText(url: url, text: text, encoding: encoding, hasBOM: signature != nil,
-                          lines: LineIndex.Prepared(text), stamp: stamp)
+                          lines: LineIndex.Prepared(text), stamp: stamp, fingerprint: TextFingerprint(text))
     }
 
     func write(_ document: EditorDocument, to url: URL) throws {

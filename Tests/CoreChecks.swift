@@ -106,6 +106,15 @@ import Foundation
         precondition(overridden.syntaxLanguage == .json && !overridden.hasUnsavedChanges)
         overridden.languageOverride = nil
         precondition(overridden.syntaxLanguage == .java)
+        // Text fingerprints (the saved state after Undo): the same from String and NSString.
+        for sample in ["", "café 😀\r\n中文", String(repeating: "x😀\n", count: 5_000)] {
+            precondition(TextFingerprint(sample) == TextFingerprint(sample as NSString) && TextFingerprint(sample).length == (sample as NSString).length,
+                         "Fingerprints agree")
+        }
+        precondition(TextFingerprint("abc") != TextFingerprint("abd"), "Different text, different fingerprint")
+        let loadedFingerprint = try service.load(stampedFingerprintSource(directory))
+        precondition(loadedFingerprint.fingerprint == TextFingerprint(loadedFingerprint.text) && loadedFingerprint.makeDocument().savedFingerprint == loadedFingerprint.fingerprint,
+                     "Loading fingerprints the text")
         // File stamps tell real content changes (by other apps) from metadata-only notifications.
         let stamped = directory.appendingPathComponent("stamp.txt")
         try "a".write(to: stamped, atomically: false, encoding: .utf8)
@@ -175,5 +184,11 @@ import Foundation
             precondition(back.text == converted.text && back.hasBOM == choice.byteOrderMark, "Round trip in \(choice.name)")
         }
         print("Core checks passed: line offsets, Unicode, CRLF/CR/LF, dirty state, UTF-8/UTF-16 file round trips, encodings and line ending conversion.")
+    }
+
+    static func stampedFingerprintSource(_ directory: URL) throws -> URL {
+        let url = directory.appendingPathComponent("fingerprint.txt")
+        try "fingerprint 😀\r\nline two\n".write(to: url, atomically: true, encoding: .utf8)
+        return url
     }
 }

@@ -1,6 +1,31 @@
 import AppKit
 
 final class CodeTextView: NSTextView {
+    // Edit ▸ Undo and Redo use this tab's own undo manager (EditorSession gives each tab one, through
+    // undoManager(for:)); the window's undo: would use the window's, shared by every tab.
+    @objc func undo(_ sender: Any?) {
+        guard isEditable, let manager = undoManager, manager.canUndo else { NSSound.beep(); return }
+        manager.undo()
+    }
+
+    @objc func redo(_ sender: Any?) {
+        guard isEditable, let manager = undoManager, manager.canRedo else { NSSound.beep(); return }
+        manager.redo()
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(undo(_:)):
+            (item as? NSMenuItem)?.title = undoManager?.undoMenuItemTitle ?? "Undo"
+            return isEditable && undoManager?.canUndo == true
+        case #selector(redo(_:)):
+            (item as? NSMenuItem)?.title = undoManager?.redoMenuItemTitle ?? "Redo"
+            return isEditable && undoManager?.canRedo == true
+        default:
+            return super.validateUserInterfaceItem(item)
+        }
+    }
+
     /// What Return types: the document's line break, so a Windows (CRLF) file stays CRLF, as in Notepad++.
     var lineBreak = "\n"
     var matchingBrackets: [NSRange] = []

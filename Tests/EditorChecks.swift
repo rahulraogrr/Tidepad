@@ -604,6 +604,7 @@ import AppKit
         checkLineEndings()
         try checkLargeFile(output: output)
         checkSearchEditing()
+        checkUndo()
         checkTextCommands()
         try checkExternalChanges(output: output)
         try checkDocumentGroups(output: output)
@@ -677,6 +678,60 @@ import AppKit
 
     /// Another app's coordinated write is noticed through NSFilePresenter; Tidepad's own saves aren't.
     /// (The app isn't active in this harness, so changes are queued rather than prompting.)
+    /// Each tab has its own undo history, and typing undoes as one step (NSTextView's coalescing), with
+    /// the saved state followed across Undo and Redo.
+    @MainActor static func checkUndo() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        let first = EditorSession(document: EditorDocument(text: "alpha\n")), second = EditorSession(document: EditorDocument(text: "beta\n"))
+        window.contentView = first.scrollView
+        window.makeFirstResponder(first.textView)
+        first.textView.setSelectedRange(NSRange(location: 5, length: 0))
+        for character in " one two" {
+            first.textView.insertText(String(character), replacementRange: first.textView.selectedRange())
+            pump(0.01)
+        }
+        precondition(first.document.text == "alpha one two\n" && first.document.hasUnsavedChanges, "Typed")
+        window.contentView = second.scrollView
+        window.makeFirstResponder(second.textView)
+        precondition(first.textView.undoManager !== second.textView.undoManager && second.textView.undoManager?.canUndo == false,
+                     "Each tab has its own undo")
+        second.textView.undo(nil)
+        precondition(first.document.text == "alpha one two\n" && second.document.text == "beta\n", "Undo in another tab leaves this one alone")
+        window.contentView = first.scrollView
+        window.makeFirstResponder(first.textView)
+        let undoItem = NSMenuItem(title: "Undo", action: #selector(CodeTextView.undo(_:)), keyEquivalent: "")
+        precondition(first.textView.validateUserInterfaceItem(undoItem) && undoItem.title == "Undo Typing", "Edit ▸ Undo names this tab's step: \(undoItem.title)")
+        first.textView.undo(nil)
+        pump(0.01)
+        precondition(first.document.text == "alpha\n" && !first.document.hasUnsavedChanges,
+                     "Typing undoes in one step, back to the saved text: \(first.document.text.debugDescription)")
+        first.textView.redo(nil)
+        pump(0.01)
+        precondition(first.document.text == "alpha one two\n" && first.document.hasUnsavedChanges, "Redo")
+        // Saving, then undoing past the save and redoing back to it.
+        first.document.markSaved(at: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("undo-check.txt"))
+        precondition(!first.document.hasUnsavedChanges)
+        first.textView.undo(nil)
+        pump(0.01)
+        precondition(first.document.text == "alpha\n" && first.document.hasUnsavedChanges, "Undo past a save")
+        first.textView.redo(nil)
+        pump(0.01)
+        precondition(!first.document.hasUnsavedChanges, "Redo back to the save")
+        // Text of the same length that isn't the saved text is still unsaved.
+        first.textView.setSelectedRange(NSRange(location: 6, length: 3))
+        first.textView.insertText("ONE", replacementRange: first.textView.selectedRange())
+        pump(0.01)
+        precondition(first.document.text == "alpha ONE two\n" && first.document.hasUnsavedChanges, "Same length, different text")
+        first.textView.undo(nil)
+        pump(0.01)
+        precondition(!first.document.hasUnsavedChanges, "Undo back to the save")
+        first.textView.redo(nil)
+        pump(0.01)
+        precondition(first.document.hasUnsavedChanges, "Redo to text of the saved length that isn't the saved text")
+        window.contentView = nil
+        print("PASS undo per tab, typing as one undo step, saved state across undo and redo")
+    }
+
     @MainActor static func checkExternalChanges(output: URL) throws {
         let url = output.appendingPathComponent("external.txt")
         try "one\n".write(to: url, atomically: false, encoding: .utf8)

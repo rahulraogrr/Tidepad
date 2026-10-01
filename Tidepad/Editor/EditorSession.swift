@@ -13,6 +13,9 @@ import Combine
     /// report a bold keyword's font; the gutter, typing and highlighter use this instead.
     private(set) var baseFont: NSFont
     private var appliedOptions: EditorDisplayOptions?
+    /// This tab's own undo history (NSTextView asks its delegate for one), so Undo in one tab never
+    /// undoes another's edits.
+    private let undo = UndoManager()
 
     init(document: EditorDocument, fontConfiguration: EditorFontConfiguration = .standard,
          syntaxPolicy: SyntaxPolicy = SyntaxPolicy()) {
@@ -81,7 +84,15 @@ import Combine
         highlighter?.update(language: language)
         textView.linkAt = { [weak self] characterIndex in self?.highlighter?.link(at: characterIndex) }
         storage.delegate = self
-        document.saveBoundary = { [weak textView] in textView?.breakUndoCoalescing() }
+        document.saveBoundary = { [weak self] in
+            guard let self else { return }
+            self.textView.breakUndoCoalescing()
+            self.document.savedFingerprint = TextFingerprint(self.textView.textStorage?.mutableString ?? "")
+        }
+        // A document made in code (a new tab, a check) rather than loaded from a file.
+        if document.savedFingerprint == nil && !document.hasUnsavedChanges {
+            document.savedFingerprint = TextFingerprint(storage.mutableString)
+        }
         document.attachStorage(read: { [weak storage] in storage?.string ?? "" },
             replace: { [weak self] value in
                 guard let self else { return }
@@ -204,16 +215,22 @@ import Combine
         highlighter?.noteEdit(range: range, changeInLength: delta, length: storage.length)
     }
 
-    private func restoreEditingState(_ state: UInt64) {
-        let previous = document.editingState
-        textView.undoManager?.registerUndo(withTarget: self) { target in target.restoreEditingState(previous) }
-        document.setEditingState(state)
+    func undoManager(for view: NSTextView) -> UndoManager? { undo }
+
+    /// Whether the text is unsaved. Nothing is registered with the undo manager (that would stop
+    /// NSTextView from coalescing typing into one undo step); after Undo or Redo, the text is
+    /// compared with the saved text's fingerprint: by length, then by hash only if the length matches.
+    private func updateSavedState() {
+        if undo.isUndoing || undo.isRedoing, let saved = document.savedFingerprint, document.savedEditingState != .max,
+           let text = textView.textStorage?.mutableString, text.length == saved.length, TextFingerprint(text) == saved {
+            document.setEditingState(document.savedEditingState)
+        } else {
+            document.setEditingState(document.revision)
+        }
     }
 
     func textDidChange(_ notification: Notification) {
-        if textView.undoManager?.isUndoing != true && textView.undoManager?.isRedoing != true {
-            restoreEditingState(document.revision)
-        }
+        updateSavedState()
         updateLineEnding()
         EditorDiagnostics.measure("gutter") { ruler.lineIndex = index }
         document.lineCount = index.starts.count

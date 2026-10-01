@@ -27,8 +27,55 @@ enum LineEnding: String, CaseIterable {
     }
 }
 
+/// A text's length and a hash of all of it (UTF-16): enough to tell, after Undo or Redo, whether the
+/// editor is back at the text last saved, without keeping a copy of that text (Rule 2).
+struct TextFingerprint: Equatable, Sendable {
+    let length: Int
+    let hash: Int
+    private static let chunk = 8_192
+
+    init(_ text: NSString) {
+        var hasher = Hasher()
+        var buffer = [unichar](repeating: 0, count: Self.chunk)
+        var location = 0
+        while location < text.length {
+            let count = min(Self.chunk, text.length - location)
+            buffer.withUnsafeMutableBufferPointer { units in
+                text.getCharacters(units.baseAddress!, range: NSRange(location: location, length: count))
+                hasher.combine(bytes: UnsafeRawBufferPointer(start: units.baseAddress, count: count * 2))
+            }
+            location += count
+        }
+        length = text.length
+        hash = hasher.finalize()
+    }
+
+    /// The same, from a String (files are fingerprinted as they load, off the main thread).
+    init(_ text: String) {
+        var hasher = Hasher()
+        var buffer: [UInt16] = []
+        buffer.reserveCapacity(Self.chunk)
+        var length = 0
+        func flush() {
+            buffer.withUnsafeBytes { hasher.combine(bytes: $0) }
+            length += buffer.count
+            buffer.removeAll(keepingCapacity: true)
+        }
+        for unit in text.utf16 {
+            buffer.append(unit)
+            if buffer.count == Self.chunk { flush() }
+        }
+        flush()
+        self.length = length
+        hash = hasher.finalize()
+    }
+}
+
 @Observable final class EditorDocument: Identifiable {
     @ObservationIgnored var preparedLines: LineIndex.Prepared?
+    /// The fingerprint of the text last loaded or saved, for the normal editor (nil once that text
+    /// can't be returned to by Undo, e.g. after markUnsaved).
+    @ObservationIgnored var savedFingerprint: TextFingerprint?
     @ObservationIgnored var saveBoundary: (() -> Void)?
     /// The file version this document was last loaded from or saved to.
     @ObservationIgnored var diskStamp: FileStamp?
@@ -74,6 +121,8 @@ enum LineEnding: String, CaseIterable {
     }
 
     var editingState: UInt64 { state }
+    /// The editing state of the text last saved (`UInt64.max` when Undo can't return to it).
+    var savedEditingState: UInt64 { savedState }
     func setEditingState(_ value: UInt64) {
         state = value
         hasUnsavedChanges = state != savedState
@@ -116,6 +165,7 @@ enum LineEnding: String, CaseIterable {
     /// deleted by another app and the user keeps it open. Undo can't return to this "saved" state.
     func markUnsaved() {
         savedState = UInt64.max
+        savedFingerprint = nil
         savedText = nil
         hasUnsavedChanges = true
     }
