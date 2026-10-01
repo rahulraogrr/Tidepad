@@ -84,7 +84,8 @@ final class LineIndex {
                 let paired = index + 1 < units.count && units[index + 1] == 10
                 if paired { index += 1 }
                 starts.append(origin + index + 1); endings.append(paired ? 2 : 1)
-            } else if units[index] == 10 || units[index] == 0x2028 || units[index] == 0x2029 {
+            } else if units[index] == 10 || units[index] == 0x85 || units[index] == 0x2028 || units[index] == 0x2029 {
+                // LF, and the other breaks the text system starts a new line at: NEL, line and paragraph separator.
                 starts.append(origin + index + 1); endings.append(0)
             }
             if starts.last == origin + index + 1 {

@@ -117,7 +117,8 @@ import Combine
     @objc private func viewportChanged() {
         ruler.needsDisplay = true
         // No full redraw here: the clip view draws only the newly shown strip, and colour changes
-        // invalidate their own text's display.
+        // invalidate their own text's display. Colours go on now, so the strip is drawn coloured; bold,
+        // which changes the text storage, follows on the next turn (SyntaxHighlighter.scheduleBold).
         highlighter?.renderVisibleText()
     }
 

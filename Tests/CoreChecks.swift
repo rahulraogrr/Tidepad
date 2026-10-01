@@ -11,6 +11,9 @@ import Foundation
         precondition(index.line(at: 9) == 3 && index.line(at: 10) == 4)
         index.rebuild("single")
         precondition(index.starts == [0])
+        // NEL, like the line and paragraph separators, starts a new line, as the text system lays it out.
+        index.rebuild("a\u{85}b\u{2028}c")
+        precondition(index.starts == [0, 2, 4], "NEL starts a line: \(index.starts)")
         let mutable = NSMutableString(string: "a\r\nb\rc\n😀\n")
         index.rebuild(mutable as String)
         var seed: UInt64 = 17

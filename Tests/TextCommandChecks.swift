@@ -50,6 +50,12 @@ import FoundationXML
         expect(run(s, TextCommands.moveLines(s as NSString, selection: caret(9), up: true)), "one\nthree\ntwo", caret(5), "Move last line up")
         precondition(TextCommands.moveLines(s as NSString, selection: caret(0), up: true) == nil, "First line can't move up")
         precondition(TextCommands.moveLines(s as NSString, selection: caret(9), up: false) == nil, "Last line can't move down")
+        // A selection that includes the line break stays on the moved line, never past the text or
+        // inside a CRLF, when the line breaks around it differ.
+        let toLast = TextCommands.moveLines("a\n2\n3" as NSString, selection: NSRange(location: 2, length: 2), up: false)
+        expect(run("a\n2\n3", toLast), "a\n3\n2", NSRange(location: 4, length: 1), "Moved to the last line, which has no line break")
+        let mixed = TextCommands.moveLines("x\r\ny\nz" as NSString, selection: NSRange(location: 0, length: 3), up: false)
+        expect(run("x\r\ny\nz", mixed), "y\r\nx\nz", NSRange(location: 3, length: 2), "Mixed CRLF and LF")
         expect(run(s, TextCommands.moveLines(s as NSString, selection: NSRange(location: 0, length: 7), up: false)), "three\none\ntwo", NSRange(location: 6, length: 7), "Move a two-line block down")
         s = "a\r\nb\nc"
         expect(run(s, TextCommands.moveLines(s as NSString, selection: caret(3), up: true)), "b\r\na\nc", caret(0), "Line breaks stay in place")

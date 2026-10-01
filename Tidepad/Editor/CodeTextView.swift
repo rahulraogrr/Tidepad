@@ -97,23 +97,30 @@ final class CodeTextView: NSTextView {
         return true
     }
 
+    /// Where the current-line highlight and bracket boxes were last drawn, so a caret move redraws only
+    /// those and the new ones, not the whole screen (Rule 2: a keystroke shouldn't repaint everything).
+    private(set) var decorationRects: [NSRect] = []
+
     func updateCaretDecorations() {
         let selection = selectedRange()
         matchingBrackets = selection.length == 0
             ? BracketMatcher.match(in: textStorage?.mutableString ?? NSMutableString(), caret: selection.location) : []
-        setNeedsDisplay(visibleRect)
+        let now = decorations()
+        let rects = [now.line].compactMap { $0 } + now.brackets
+        for rect in decorationRects + rects { setNeedsDisplay(rect.insetBy(dx: -1, dy: -1)) }
+        decorationRects = rects
     }
 
-    override func drawBackground(in rect: NSRect) {
-        super.drawBackground(in: rect)
-        guard let layout = layoutManager, let container = textContainer else { return }
+    /// The caret's line (across the whole view) and the matching brackets' boxes, in view coordinates.
+    /// Nothing while the caret is off screen: finding its line would lay out the file up to it.
+    private func decorations() -> (line: NSRect?, brackets: [NSRect]) {
+        guard let layout = layoutManager, let container = textContainer else { return (nil, []) }
         let length = (textStorage?.length ?? 0)
         let caret = min(selectedRange().location, length)
         let visible = visibleRect.offsetBy(dx: -textContainerOrigin.x, dy: -textContainerOrigin.y)
         let glyphs = layout.glyphRange(forBoundingRect: visible, in: container)
         let characters = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
-        // An offscreen caret must not make a cosmetic highlight lay out the entire intervening file.
-        guard caret >= characters.location, caret <= NSMaxRange(characters) else { return }
+        guard caret >= characters.location, caret <= NSMaxRange(characters) else { return (nil, []) }
         let fragment: NSRect
         if caret == length && (length == 0 || layout.extraLineFragmentTextContainer != nil) {
             fragment = layout.extraLineFragmentRect
@@ -122,15 +129,22 @@ final class CodeTextView: NSTextView {
             fragment = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
         } else { fragment = .zero }
         let height = max(fragment.height, layout.defaultLineHeight(for: font ?? EditorFontProvider.font()))
-        let line = NSRect(x: visibleRect.minX, y: fragment.minY + textContainerOrigin.y,
-                          width: visibleRect.width, height: height)
-        TidepadTheme.currentLine.setFill()
-        line.intersection(rect).fill()
-        for range in matchingBrackets where NSMaxRange(range) <= length && NSIntersectionRange(range, characters).length > 0 {
-            let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            let box = layout.boundingRect(forGlyphRange: glyphs, in: container)
+        let line = NSRect(x: bounds.minX, y: fragment.minY + textContainerOrigin.y, width: bounds.width, height: height)
+        let brackets = matchingBrackets.filter { NSMaxRange($0) <= length && NSIntersectionRange($0, characters).length > 0 }.map { range in
+            layout.boundingRect(forGlyphRange: layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil), in: container)
                 .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
-            guard box.intersects(rect) else { continue }
+        }
+        return (line, brackets)
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        let now = decorations()
+        if let line = now.line {
+            TidepadTheme.currentLine.setFill()
+            line.intersection(rect).fill()
+        }
+        for box in now.brackets where box.intersects(rect) {
             TidepadTheme.bracketFill.setFill()
             box.fill()
             TidepadTheme.bracketBorder.setStroke()

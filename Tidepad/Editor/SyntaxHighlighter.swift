@@ -11,6 +11,12 @@ import AppKit
     private var engine = IncrementalSyntaxEngine()
     private let policy: SyntaxPolicy
     private var renderScheduled = false
+    /// Bold to apply after the render: changing fonts in the text storage mustn't happen while TextKit
+    /// may be laying out (a render can run from a scroll's bounds change), so it's done on the next turn
+    /// of the main thread. `editGeneration` drops it if the text changed in between.
+    private var pendingBold: [(tokens: [SyntaxToken], part: NSRange)] = []
+    private var boldScheduled = false
+    private var editGeneration = 0
     private var rendering = false
     /// The painted text no longer matches what's shown (edit, language, font or appearance change).
     private var stale = true
@@ -60,13 +66,14 @@ import AppKit
     /// Re-colours everything visible, e.g. after a light/dark appearance change.
     func refresh() {
         stale = true
-        renderVisibleText()
+        scheduleRender() // Not straight away: an appearance change can arrive during drawing.
     }
 
     /// Called from the text storage's didProcessEditing, after the line index has been updated.
     func noteEdit(range editedRange: NSRange, changeInLength delta: Int, length: Int) {
         // The line before may have changed too (a CR joined with an inserted LF).
         engine.invalidate(fromLine: lineIndex.line(at: editedRange.location) - 1)
+        editGeneration &+= 1
         links = []
         stale = true
         // Temporary attributes shift with edits. Cover both the old and shifted painted span, so the
@@ -131,7 +138,7 @@ import AppKit
         var newLinks: [(range: NSRange, url: URL)] = []
         for part in fresh where part.length > 0 {
             let tokens = Self.timed("1 tokens") { engine.tokens(in: part, index: lineIndex, text: text) }
-            Self.timed("2 fonts") { applyBold(tokens, in: part, storage: storage) }
+            pendingBold.append((tokens, part))
             Self.timed("3 colours") {
                 for token in tokens {
                     layout.addTemporaryAttribute(.foregroundColor, value: SyntaxPalette.color(for: token.kind, language: language, dark: dark),
@@ -156,6 +163,27 @@ import AppKit
         links = kept + newLinks
         paintedRange = range
         stale = false
+        scheduleBold()
+    }
+
+    private func scheduleBold() {
+        guard !pendingBold.isEmpty, !boldScheduled else { return }
+        boldScheduled = true
+        let generation = editGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.boldScheduled = false
+            let work = self.pendingBold
+            self.pendingBold.removeAll()
+            guard generation == self.editGeneration, let storage = self.textView?.textStorage, !(self.textView?.hasMarkedText() ?? false) else {
+                self.stale = true // The text changed: the next render works it out again.
+                self.scheduleRender()
+                return
+            }
+            Self.timed("2 fonts") {
+                for (tokens, part) in work where NSMaxRange(part) <= storage.length { self.applyBold(tokens, in: part, storage: storage) }
+            }
+        }
     }
 
     /// The parts of `outer` before and after `inner` (which lies inside it).

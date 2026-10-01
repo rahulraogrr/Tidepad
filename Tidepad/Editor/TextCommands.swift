@@ -136,8 +136,17 @@ enum TextCommands {
         let text = b.content + a.terminator + a.content + b.terminator
         let region = NSRange(location: first.location, length: NSMaxRange(second) - first.location)
         let blockStart = up ? region.location : region.location + length(b.content) + length(a.terminator)
-        return TextEdit(range: region, text: text,
-                        selection: NSRange(location: blockStart + selection.location - block.location, length: selection.length),
+        // The selection moves with the block's text. Its line break is now another one (the last line
+        // may have none, or the file may mix CRLF and LF), so a selection reaching into it covers the new
+        // one: never past it, and never half of a CRLF.
+        let moved = up ? b : a
+        let content = length(moved.content), oldBreak = length(moved.terminator), newBreak = length(up ? a.terminator : b.terminator)
+        func place(_ offset: Int) -> Int {
+            if offset <= content { return blockStart + offset }
+            return blockStart + content + (offset >= content + oldBreak ? newBreak : 0)
+        }
+        let start = place(selection.location - block.location), end = place(NSMaxRange(selection) - block.location)
+        return TextEdit(range: region, text: text, selection: NSRange(location: start, length: end - start),
                         actionName: up ? "Move Line Up" : "Move Line Down")
     }
 
